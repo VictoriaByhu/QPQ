@@ -6,11 +6,11 @@
 
 Домен розбито на три піддомени, у кожному по три API. Кожен API має власну базу даних.
 
-| Піддомен | API | Відповідальний |
-|---|---|---|
-| Skills | Catalog, UserSkills, Matching | [ім'я] |
-| Swaps | Swaps, Sessions, Messages | Вікторія |
-| Reviews | Reviews, Reputation, Moderation | [ім'я] |
+| Піддомен | API |
+|---|---|
+| Skills | Catalog, UserSkills, Matching |
+| Swaps | Swaps, Sessions, Messages |
+| Reviews | Reviews, Reputation, Moderation |
 
 Персональні дані (ім'я, email, аватар) зберігає зовнішній сервіс Identity (Duende IdentityServer / Keycloak). Він видає `UserId` (claim `sub`), а доменні сервіси зберігають лише цей ідентифікатор.
 
