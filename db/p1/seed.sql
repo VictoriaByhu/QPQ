@@ -4,45 +4,38 @@ GO
 USE QPQ_Swaps;
 GO
 
-MERGE dbo.Users AS t
-USING (VALUES
-    (1, N'Олена Коваль',    N'olena@example.com'),
-    (2, N'Андрій Мельник',  N'andriy@example.com'),
-    (3, N'Марія Шевченко',  N'maria@example.com'),
-    (4, N'Іван Бондаренко', N'ivan@example.com')
-) AS s (Id, DisplayName, Email)
-ON t.Id = s.Id
-WHEN NOT MATCHED THEN
-    INSERT (Id, DisplayName, Email) VALUES (s.Id, s.DisplayName, s.Email);
-GO
-
-
 MERGE dbo.Skills AS t
 USING (VALUES
-    (1, N'Програмування C#',        N'IT'),
-    (2, N'Англійська розмовна',     N'Мови'),
-    (3, N'Гра на гітарі',           N'Музика'),
-    (4, N'UI-дизайн',               N'Дизайн'),
-    (5, N'Фотографія',              N'Мистецтво'),
-    (6, N'Приготування випічки',    N'Кулінарія')
-) AS s (Id, Name, Category)
+    (1, N'Програмування C#'),
+    (2, N'Англійська розмовна'),
+    (3, N'Гра на гітарі'),
+    (4, N'UI-дизайн'),
+    (5, N'Фотографія'),
+    (6, N'Приготування випічки')
+) AS s (Id, Name)
 ON t.Id = s.Id
 WHEN NOT MATCHED THEN
-    INSERT (Id, Name, Category) VALUES (s.Id, s.Name, s.Category);
+    INSERT (Id, Name) VALUES (s.Id, s.Name);
 GO
+
+DECLARE @U1 UNIQUEIDENTIFIER = '3f2a9c10-6b1e-4d7a-9a51-0c8e5d2b7f01';
+DECLARE @U2 UNIQUEIDENTIFIER = '7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02';
+DECLARE @U3 UNIQUEIDENTIFIER = 'b19e6a33-2c5d-47f8-8d14-9a0b3e6f5c03';
+DECLARE @U4 UNIQUEIDENTIFIER = 'e8d05b44-9f7a-4c21-a6b3-1d2e4f7a8b04';
 
 SET IDENTITY_INSERT dbo.Swaps ON;
 MERGE dbo.Swaps AS t
 USING (VALUES
-    (1, 1, 2, N'Pending'),
-    (2, 2, 3, N'Accepted'),
-    (3, 3, 1, N'Completed'),
-    (4, 4, 1, N'Rejected'),
-    (5, 2, 4, N'Cancelled')
-) AS s (Id, RequesterId, ProviderId, Status)
+    (1, @U1, @U2, N'Pending',   @U1),
+    (2, @U2, @U3, N'Accepted',  @U2),
+    (3, @U3, @U1, N'Completed', @U3),
+    (4, @U4, @U1, N'Rejected',  @U4),
+    (5, @U2, @U4, N'Cancelled', @U2)
+) AS s (Id, InitiatorId, PartnerId, Status, CreatedBy)
 ON t.Id = s.Id
 WHEN NOT MATCHED THEN
-    INSERT (Id, RequesterId, ProviderId, Status) VALUES (s.Id, s.RequesterId, s.ProviderId, s.Status);
+    INSERT (Id, InitiatorId, PartnerId, Status, CreatedBy)
+    VALUES (s.Id, s.InitiatorId, s.PartnerId, s.Status, s.CreatedBy);
 SET IDENTITY_INSERT dbo.Swaps OFF;
 GO
 
@@ -73,18 +66,23 @@ WHEN NOT MATCHED THEN
     INSERT (SwapId, SkillId, Role) VALUES (s.SwapId, s.SkillId, s.Role);
 GO
 
+DECLARE @U1 UNIQUEIDENTIFIER = '3f2a9c10-6b1e-4d7a-9a51-0c8e5d2b7f01';
+DECLARE @U2 UNIQUEIDENTIFIER = '7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02';
+DECLARE @U3 UNIQUEIDENTIFIER = 'b19e6a33-2c5d-47f8-8d14-9a0b3e6f5c03';
+DECLARE @U4 UNIQUEIDENTIFIER = 'e8d05b44-9f7a-4c21-a6b3-1d2e4f7a8b04';
+
 MERGE dbo.SwapStatusHistory AS t
 USING (VALUES
-    (1, NULL,       N'Pending',   1, N'Swap created'),
-    (2, NULL,       N'Pending',   2, N'Swap created'),
-    (2, N'Pending', N'Accepted',  3, N'Accepted'),
-    (3, NULL,       N'Pending',   3, N'Swap created'),
-    (3, N'Pending', N'Accepted',  1, N'Accepted'),
-    (3, N'Accepted',N'Completed', 3, N'Completed'),
-    (4, NULL,       N'Pending',   4, N'Swap created'),
-    (4, N'Pending', N'Rejected',  1, N'No time'),
-    (5, NULL,       N'Pending',   2, N'Swap created'),
-    (5, N'Pending', N'Cancelled', 2, N'Plans changed')
+    (1, NULL,        N'Pending',   @U1, N'Swap created'),
+    (2, NULL,        N'Pending',   @U2, N'Swap created'),
+    (2, N'Pending',  N'Accepted',  @U3, N'Accepted'),
+    (3, NULL,        N'Pending',   @U3, N'Swap created'),
+    (3, N'Pending',  N'Accepted',  @U1, N'Accepted'),
+    (3, N'Accepted', N'Completed', @U3, N'Completed'),
+    (4, NULL,        N'Pending',   @U4, N'Swap created'),
+    (4, N'Pending',  N'Rejected',  @U1, N'No time'),
+    (5, NULL,        N'Pending',   @U2, N'Swap created'),
+    (5, N'Pending',  N'Cancelled', @U2, N'Plans changed')
 ) AS s (SwapId, OldStatus, NewStatus, ChangedByUserId, Comment)
 ON t.SwapId = s.SwapId AND t.NewStatus = s.NewStatus
 WHEN NOT MATCHED THEN
