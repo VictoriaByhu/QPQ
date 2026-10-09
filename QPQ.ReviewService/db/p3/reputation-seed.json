@@ -1,0 +1,22 @@
+﻿[
+    {
+        "_id": { "$oid": "651a68aa901fb623fe255011" },
+        "userId": 10,
+        "userName": "Володимир",
+        "avgRating": 4.8,
+        "swapsCount": 15,
+        "trustLevel": "High"
+    },
+    {
+        "_id": { "$oid": "651a68aa901fb623fe255012" },
+        "userId": 20,
+        "userName": "Оксана",
+        "avgRating": 5.0,
+        "swapsCount": 2,
+        "trustLevel": "Newbie",
+        "badges": [
+            "Fast Responder",
+            "Great Teacher"
+        ]
+    }
+]

@@ -1,0 +1,37 @@
+[
+    {
+        "_id": { "$oid": "651a68aa901fb623fe254011" },
+        "skillId": 5,
+        "skillName": "Photoshop",
+        "authorUserId": 10,
+        "authorUserName": "Володимир",
+        "title": "Як краще виділяти волосся (Photoshop)?",
+        "content": "Підкажіть, які інструменти Photoshop найкраще підходять для виділення волосся на складному фоні?",
+        "createdAt": "2026-10-01T09:00:00Z",
+        "comments": [
+            {
+                "userId": 20,
+                "userName": "Оксана",
+                "content": "Використовуй Select Subject, а потім уточни через Select and Mask та пензель Refine Edge.",
+                "createdAt": "2026-10-01T09:30:00Z"
+            },
+            {
+                "userId": 12,
+                "userName": "Максим",
+                "content": "Також можна спробувати через канали (Calculations), якщо фон контрастний.",
+                "createdAt": "2026-10-01T11:20:00Z"
+            }
+        ]
+    },
+    {
+        "_id": { "$oid": "651a68aa901fb623fe254012" },
+        "skillId": 8,
+        "skillName": "English Speaking",
+        "authorUserId": 15,
+        "authorUserName": "Олена",
+        "title": "Шукаю партнера для розмовної англійської",
+        "content": "Чи є бажаючі практикувати розмовну англійську двічі на тиждень по вечорах?",
+        "createdAt": "2026-10-02T16:45:00Z",
+        "comments": []
+    }
+]

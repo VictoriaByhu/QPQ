@@ -1,0 +1,44 @@
+[
+    {
+        "_id": { "$oid": "651a68aa901fb623fe253011" },
+        "swapRequestId": 1,
+        "fromUserId": 10,
+        "fromUserName": "Володимир",
+        "toUserId": 20,
+        "toUserName": "Оксана",
+        "rating": 5,
+        "comment": "Чудовий обмін! Дуже зрозуміло пояснює Photoshop.",
+        "criteria": {
+            "Communication": 5,
+            "TeachingQuality": 5,
+            "Punctuality": 5
+        },
+        "photos": [ "photoshop_result.png" ],
+        "createdAt": "2026-10-04T10:30:00Z"
+    },
+    {
+        "_id": { "$oid": "651a68aa901fb623fe253012" },
+        "swapRequestId": 2,
+        "fromUserId": 15,
+        "fromUserName": "Олена",
+        "toUserId": 10,
+        "toUserName": "Володимир",
+        "rating": 4,
+        "criteria": {
+            "TeachingQuality": 5,
+            "Communication": 4
+        },
+        "createdAt": "2026-10-05T14:15:00Z"
+    },
+    {
+        "_id": { "$oid": "651a68aa901fb623fe253013" },
+        "swapRequestId": 3,
+        "fromUserId": 22,
+        "fromUserName": "Андрій",
+        "toUserId": 10,
+        "toUserName": "Володимир",
+        "rating": 5,
+        "comment": "Все супер, дякую за допомогу з кодом!",
+        "createdAt": "2026-10-06T09:20:00Z"
+    }
+]
