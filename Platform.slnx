@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/Services/Swaps/">
+    <Project Path="Services/Swaps/Swaps.Api/Swaps.Api.csproj" />
+    <Project Path="Services/Swaps/Swaps.Bll/Swaps.Bll.csproj" />
+    <Project Path="Services/Swaps/Swaps.Dal/Swaps.Dal.csproj" />
+    <Project Path="Services/Swaps/Swaps.Domain/Swaps.Domain.csproj" />
+  </Folder>
+  <Project Path="Platform.AppHost/Platform.AppHost.csproj" />
+</Solution>
