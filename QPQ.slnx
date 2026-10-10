@@ -1,6 +1,0 @@
-<Solution>
-  <Folder Name="/db/" />
-  <Folder Name="/db/p1/" />
-  <Folder Name="/docs/" />
-  <Project Path="SwapService/SwapService.csproj" />
-</Solution>
