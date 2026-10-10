@@ -170,3 +170,195 @@ ERD: [docs/erd-swaps.md](docs/erd-swaps.md). Опис контекстів: [doc
 | `ix_messages_conversation_createdAt` | хронологічна стрічка повідомлень розмови, без видалених |
 | `ix_messages_sender_createdAt` | повідомлення конкретного відправника |
 | `ix_attachments_conversation_uploadedAt` | файли розмови від нових до старих |
+
+## Swaps API (Лабораторна 2)
+
+Мікросервіс Swaps реалізовано як вертикаль від бази `QPQ_Swaps` до API: Api → Bll → Dal, спільні моделі й винятки в Domain. Доступ до даних на ADO.NET та Dapper, запуск разом із базою через .NET Aspire.
+
+### Структура рішення
+
+```
+Platform.slnx
+Platform.AppHost/            оркестрація Aspire (AppHost.cs)
+Services/Swaps/
+    Swaps.Api/               контролери, Program.cs, обробка помилок, Swagger
+    Swaps.Bll/               сервіси, DTO, профілі AutoMapper
+    Swaps.Dal/               репозиторії, Unit of Work
+    Swaps.Domain/            моделі, константи, доменні винятки
+db/                          SQL- і MongoDB-скрипти (Лаб. 1)
+docs/                        ERD, контексти, приклади документів
+```
+
+```
+HTTP -> Swaps.Api -> Swaps.Bll -> Swaps.Dal -> SQL Server (QPQ_Swaps)
+            \____________ Swaps.Domain ____________/
+```
+
+Залежності спрямовані в один бік: контролер звертається лише до сервісу, SQL існує тільки в `Swaps.Dal` та в процедурах бази.
+
+| Шар | Що містить |
+|---|---|
+| Api | `SwapsController`, `SkillsController`, `DomainExceptionHandler` (ProblemDetails), поточний користувач, Swagger, Serilog |
+| Bll | `SwapService`, `SkillService`, DTO з DataAnnotations, `SwapProfile` (AutoMapper) |
+| Dal | `IGenericRepository<T>`, `BaseDapperRepository<T>`, `SwapRepository`, `SkillRepository`, `SwapStatusHistoryRepository`, `UnitOfWork` |
+| Domain | `Swap`, `SwapDetails`, `SwapSkill`, `Skill`, `SwapStatusHistoryEntry`, `NotFoundException`, `BusinessConflictException`, `ValidationException` |
+
+#### Репозиторії
+
+| Репозиторій | Реалізація | Особливості |
+|---|---|---|
+| `SwapStatusHistoryRepository` | чистий ADO.NET (`SqlCommand`, `SqlDataReader`), без Generic Repository | параметри з явними типами, ручне читання |
+| `SwapRepository` | Dapper на `BaseDapperRepository<Swap>` | multi-mapping обміну з деталями й навичками одним запитом, виклики `usp_ChangeSwapStatus`, `usp_GetUserSwaps`, `usp_SoftDeleteSwap` |
+| `SkillRepository` | Dapper на `BaseDapperRepository<Skill>` | вибірка за списком Id (`IN @Ids`) |
+
+Спільний CRUD (`GetByIdAsync`, `GetAllAsync`, `AddAsync`, `DeleteAsync`) написано один раз у `BaseDapperRepository<T>`. Усі значення передаються лише параметрами, ім'я таблиці та списки колонок є константами репозиторіїв. З'єднання й команди звільняються через `await using`, з'єднання UoW закривається в `DisposeAsync`.
+
+### Запуск через Aspire
+
+Потрібно: .NET 10 SDK та SQL Server LocalDB з базою `QPQ_Swaps`, розгорнутою за кроками розділу «Проєкт №1 (Swaps)». Docker для цього варіанта не потрібен, бо використовується існуюча база.
+
+1. Розгорніть базу p1 (`schema.sql`, `procedures.sql`, `seed.sql`).
+2. Запустіть AppHost однією командою:
+
+```
+dotnet run --project Platform.AppHost
+```
+
+3. Відкрийте Aspire Dashboard за посиланням із консолі: ресурс `swaps-api` має статус Running.
+4. Візьміть URL API з Dashboard і відкрийте `<URL>/swagger`.
+
+Рядок підключення `SwapsDb` лежить в `Platform.AppHost/appsettings.json`, Aspire передає його в API через `WithReference`. Без Aspire сервіс запускається окремо (`dotnet run --project Services/Swaps/Swaps.Api`, Swagger на `http://localhost:5180/swagger`) і бере рядок з `Services/Swaps/Swaps.Api/appsettings.json`. Рядок можна перевизначити змінною оточення:
+
+```
+ConnectionStrings__SwapsDb=Server=...;Database=QPQ_Swaps;...
+```
+
+Ліцензійний ключ AutoMapper (Community-редакція з automapper.io) необов'язковий: без нього сервіс працює і лише пише попередження в лог. За потреби задайте його через `dotnet user-secrets` (`AutoMapper:LicenseKey`).
+
+### Поточний користувач
+
+Ідентифікатор користувача береться з токена (claim `sub`). Автентифікації в цій лабораторній ще немає, тому в середовищі Development працює заголовок `X-User-Id` з GUID користувача. У Swagger його задають один раз кнопкою Authorize. Без користувача API повертає 401.
+
+Тестові користувачі з `db/p1/seed.sql`:
+
+| Позначення | UserId | Обміни |
+|---|---|---|
+| U1 | `3f2a9c10-6b1e-4d7a-9a51-0c8e5d2b7f01` | 1 (ініціатор, Pending), 3 (Completed), 4 (Rejected) |
+| U2 | `7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02` | 1 (партнер), 2 (ініціатор, Accepted), 5 (Cancelled) |
+| U3 | `b19e6a33-2c5d-47f8-8d14-9a0b3e6f5c03` | 2 (партнер), 3 (ініціатор) |
+| U4 | `e8d05b44-9f7a-4c21-a6b3-1d2e4f7a8b04` | 4 (ініціатор), 5 (партнер) |
+
+Користувач бачить лише обміни, у яких він учасник. Чужий обмін повертає 404.
+
+### Ендпоінти
+
+| Метод і шлях | Успіх | Помилки |
+|---|---|---|
+| `GET /api/swaps?role=&status=&page=&pageSize=` | 200 | 400, 401 |
+| `GET /api/swaps/{id}` | 200 | 401, 404 |
+| `POST /api/swaps` | 201 + Location | 400, 401, 404 (навичку не знайдено) |
+| `PUT /api/swaps/{id}/details` | 200 | 400, 404, 409 |
+| `DELETE /api/swaps/{id}` | 204 | 404, 409 |
+| `POST /api/swaps/{id}/accept`, `/reject`, `/cancel`, `/complete` | 204 | 404, 409 |
+| `GET /api/swaps/{id}/history` | 200 | 404 |
+| `GET /api/skills`, `GET /api/skills/{id}` | 200 | 404 |
+
+Дії зі зміною статусу приймають необов'язкове тіло `{ "rowVersion": "...", "comment": "..." }`. Якщо `rowVersion` не передано, береться актуальна версія обміну. Якщо передано застарілу, повертається 409. Поле `rowVersion` повертається в кожній відповіді з обміном.
+
+### Помилки у форматі ProblemDetails
+
+Усі винятки перетворює один глобальний обробник `DomainExceptionHandler`, контролери не містять `try/catch`. Некоректне тіло запиту (DataAnnotations) відхиляється ще до виклику сервісу з кодом 400.
+
+| Виняток | Статус | Приклад |
+|---|---|---|
+| `NotFoundException` | 404 | обмін не існує або користувач не є його учасником |
+| `BusinessConflictException` | 409 | недопустимий перехід статусу, застаріла `rowVersion` |
+| `ValidationException` | 400 | співпадають пропонована й запитувана навичка |
+| `UnauthorizedAccessException` | 401 | немає користувача |
+| інші | 500 | деталі не передаються клієнту, помилка пишеться в лог |
+
+Помилки процедур перетворюються в шарі Dal (`SqlExceptionTranslator`): 50010 → NotFound, 50011 і 50012 → BusinessConflict, 50003 і 50004 → Validation, порушення UNIQUE (2601, 2627) → BusinessConflict.
+
+### Транзакції та рівень ізоляції
+
+Створення обміну (`SwapService.CreateAsync`) змінює чотири таблиці через три репозиторії в одній транзакції Unit of Work:
+
+1. `SwapRepository`: вставка `Swaps`, `SwapDetails`;
+2. `SkillRepository`: перевірка, що обидві навички існують;
+3. `SwapRepository`: вставка `SwapSkills`;
+4. `SwapStatusHistoryRepository`: запис «Swap created» в історію.
+
+Якщо навичку не знайдено, `NotFoundException` відкочує вже вставлені `Swaps` і `SwapDetails`. Зміна статусу виконується процедурою `usp_ChangeSwapStatus`, яка має власну транзакцію, перевіряє права, допустимий перехід і `RowVersion`, а також пише історію.
+
+Рівень ізоляції Unit of Work за замовчуванням `ReadCommitted`: він не дозволяє читати незафіксовані зміни й не створює зайвих блокувань. Вищий рівень (`RepeatableRead`, `Serializable`) зменшує аномалії читання, але збільшує кількість блокувань і ризик взаємних блокувань, тому для звичайних операцій він не потрібен. Конкурентні зміни одного обміну захищені окремо: оптимістично через `RowVersion` та песимістично через `UPDLOCK, HOLDLOCK` у процедурі зміни статусу. Таймаут команд залишено за замовчуванням SqlClient (30 секунд).
+
+### Приклади запитів
+
+Нижче `BASE` це URL API з Aspire Dashboard (наприклад, `http://localhost:5180`), а `U1`, `U2` взято з таблиці користувачів. Команди написано для bash (Git Bash). У PowerShell замість `curl` використовуйте `curl.exe`, а запити з тілом зручніше виконувати з файлу `Services/Swaps/Swaps.Api/Swaps.Api.http` у Visual Studio або через Swagger.
+
+```
+BASE=http://localhost:5180
+U1=3f2a9c10-6b1e-4d7a-9a51-0c8e5d2b7f01
+U2=7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02
+```
+
+Список обмінів користувача та один обмін:
+
+```
+curl -i "$BASE/api/swaps" -H "X-User-Id: $U1"
+curl -i "$BASE/api/swaps/1" -H "X-User-Id: $U1"
+```
+
+Створення обміну (201 і заголовок `Location`), у повідомленні є спецсимвол:
+
+```
+curl -i -X POST "$BASE/api/swaps" -H "X-User-Id: $U1" -H "Content-Type: application/json" \
+  -d '{"partnerId":"7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02","offeredSkillId":1,"requestedSkillId":2,"message":"O'\''Brien: C# за англійську","durationMinutes":60}'
+```
+
+Партнер приймає обмін 1 (204), повторне прийняття дає 409 у форматі ProblemDetails:
+
+```
+curl -i -X POST "$BASE/api/swaps/1/accept" -H "X-User-Id: $U2"
+curl -i -X POST "$BASE/api/swaps/1/accept" -H "X-User-Id: $U2"
+```
+
+Неіснуючий обмін дає 404, а не 500:
+
+```
+curl -i "$BASE/api/swaps/9999" -H "X-User-Id: $U1"
+```
+
+Відкат транзакції: навичка 999 не існує, відповідь 404, і в таблиці `Swaps` не з'являється нового рядка (перевірте `SELECT COUNT(*) FROM dbo.Swaps` до й після запиту):
+
+```
+curl -i -X POST "$BASE/api/swaps" -H "X-User-Id: $U1" -H "Content-Type: application/json" \
+  -d '{"partnerId":"7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02","offeredSkillId":1,"requestedSkillId":999}'
+```
+
+Помилка валідації (400, `durationMinutes` поза діапазоном) і запит без користувача (401):
+
+```
+curl -i -X POST "$BASE/api/swaps" -H "X-User-Id: $U1" -H "Content-Type: application/json" \
+  -d '{"partnerId":"7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02","offeredSkillId":1,"requestedSkillId":2,"durationMinutes":0}'
+curl -i "$BASE/api/swaps"
+```
+
+Історія статусів обміну:
+
+```
+curl -i "$BASE/api/swaps/1/history" -H "X-User-Id: $U1"
+```
+
+Приклад відповіді 409:
+
+```json
+{
+  "type": "https://tools.ietf.org/html/rfc9110#section-15.5.10",
+  "title": "Business rule conflict",
+  "status": 409,
+  "detail": "This status transition is not allowed for this user.",
+  "traceId": "0HN7..."
+}
+```
+
