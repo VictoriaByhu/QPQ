@@ -1,0 +1,83 @@
+@host = http://localhost:5180
+@u1 = 3f2a9c10-6b1e-4d7a-9a51-0c8e5d2b7f01
+@u2 = 7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02
+
+###
+GET {{host}}/api/skills
+
+###
+GET {{host}}/api/swaps
+X-User-Id: {{u1}}
+
+###
+GET {{host}}/api/swaps?role=Initiator&status=Pending&page=1&pageSize=10
+X-User-Id: {{u1}}
+
+###
+GET {{host}}/api/swaps/1
+X-User-Id: {{u1}}
+
+###
+POST {{host}}/api/swaps
+X-User-Id: {{u1}}
+Content-Type: application/json
+
+{
+  "partnerId": "7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02",
+  "offeredSkillId": 1,
+  "requestedSkillId": 2,
+  "message": "O'Brien: C# за англійську",
+  "location": "Онлайн",
+  "durationMinutes": 60
+}
+
+###
+POST {{host}}/api/swaps
+X-User-Id: {{u1}}
+Content-Type: application/json
+
+{
+  "partnerId": "7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02",
+  "offeredSkillId": 1,
+  "requestedSkillId": 999
+}
+
+###
+PUT {{host}}/api/swaps/1/details
+X-User-Id: {{u1}}
+Content-Type: application/json
+
+{
+  "message": "Оновлене повідомлення",
+  "location": "Чернівці, центр",
+  "durationMinutes": 90
+}
+
+###
+POST {{host}}/api/swaps/1/accept
+X-User-Id: {{u2}}
+
+###
+POST {{host}}/api/swaps/1/accept
+X-User-Id: {{u2}}
+
+###
+POST {{host}}/api/swaps/1/complete
+X-User-Id: {{u1}}
+Content-Type: application/json
+
+{
+  "comment": "Все пройшло добре"
+}
+
+###
+GET {{host}}/api/swaps/1/history
+X-User-Id: {{u1}}
+
+###
+GET {{host}}/api/swaps/9999
+X-User-Id: {{u1}}
+
+###
+DELETE {{host}}/api/swaps/4
+X-User-Id: {{u1}}
