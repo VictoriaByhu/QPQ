@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/Services/" />
+  <Folder Name="/Services/Swaps/">
+    <Project Path="Services/Swaps/Swaps.Api/Swaps.Api.csproj" />
+    <Project Path="Services/Swaps/Swaps.Bll/Swaps.Bll.csproj" />
+    <Project Path="Services/Swaps/Swaps.Dal/Swaps.Dal.csproj" />
+    <Project Path="Services/Swaps/Swaps.Domain/Swaps.Domain.csproj" />
+  </Folder>
+  <Folder Name="/Services/UserSkills/">
+    <Project Path="Services/UserSkills/UserSkills.Api/UserSkills.Api.csproj" />
+    <Project Path="Services/UserSkills/UserSkills.Bll/UserSkills.Bll.csproj" />
+    <Project Path="Services/UserSkills/UserSkills.Dal/UserSkills.Dal.csproj" />
+    <Project Path="Services/UserSkills/UserSkills.Domain/UserSkills.Domain.csproj" />
+    <Project Path="Services/UserSkills/UserSkills.Tests/UserSkills.Tests.csproj" />
+  </Folder>
+  <Project Path="Platform.AppHost/Platform.AppHost.csproj" />
+</Solution>
