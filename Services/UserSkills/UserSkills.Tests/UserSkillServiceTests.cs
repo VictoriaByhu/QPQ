@@ -198,4 +198,29 @@ public class UserSkillServiceTests
         await Assert.ThrowsAsync<ValidationException>(
             () => _service.ListAsync(UserId, "Sell", null, 1, 20));
     }
+
+    [Fact]
+    public async Task ListBySkill_MapsRowsFromRepository()
+    {
+        _userSkills.ListBySkillAsync(5, "Offer", 10, Arg.Any<CancellationToken>()).Returns(
+            new List<UserSkill>
+            {
+                new() { Id = 1, UserId = UserId, SkillId = 5, SkillName = "C#", Type = "Offer",
+                        Level = 4, Status = "Active", RowVersion = new byte[8] }
+            });
+
+        var result = await _service.ListBySkillAsync(5, "Offer", 10);
+
+        var item = Assert.Single(result);
+        Assert.Equal("C#", item.SkillName);
+        Assert.Equal(5, item.SkillId);
+    }
+
+    [Fact]
+    public async Task ListBySkill_InvalidArguments_ThrowValidation()
+    {
+        await Assert.ThrowsAsync<ValidationException>(() => _service.ListBySkillAsync(0, null, 20));
+        await Assert.ThrowsAsync<ValidationException>(() => _service.ListBySkillAsync(5, "Sell", 20));
+        await Assert.ThrowsAsync<ValidationException>(() => _service.ListBySkillAsync(5, null, 500));
+    }
 }

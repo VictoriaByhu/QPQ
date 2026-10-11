@@ -10,6 +10,10 @@ public interface IUserSkillService
 
     Task<UserSkillDto> GetByIdAsync(int id, CancellationToken ct = default);
 
+    /// <summary>Активні записи за навичкою (для підбору): Dapper multi-mapping UserSkills + Skills.</summary>
+    Task<IReadOnlyList<UserSkillSummaryDto>> ListBySkillAsync(
+        int skillId, string? type, int limit, CancellationToken ct = default);
+
     Task<UserSkillDto> CreateAsync(Guid userId, CreateUserSkillDto input, CancellationToken ct = default);
 
     Task<UserSkillDto> UpdateAsync(

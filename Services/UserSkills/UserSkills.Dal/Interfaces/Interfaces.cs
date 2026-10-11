@@ -40,6 +40,13 @@ public interface IUserSkillRepository : IGenericRepository<UserSkill>
         Guid userId, string? type, string? status, int pageNumber, int pageSize,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Активні записи за навичкою (та, за потреби, типом) разом з назвою навички.
+    /// Dapper multi-mapping: JOIN UserSkills + Skills, splitOn.
+    /// </summary>
+    Task<IReadOnlyList<UserSkill>> ListBySkillAsync(
+        int skillId, string? type, int limit, CancellationToken ct = default);
+
     /// <summary>Створює запис, деталі, мови, доступність і рядок журналу (usp_AddUserSkill).</summary>
     Task<int> AddFullAsync(UserSkill entity, CancellationToken ct = default);
 

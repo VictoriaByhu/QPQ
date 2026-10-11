@@ -22,6 +22,15 @@ public class UserSkillsController(IUserSkillService userSkills, ICurrentUser cur
         CancellationToken ct = default)
         => Ok(await userSkills.ListAsync(currentUser.UserId, type, status, pageNumber, pageSize, ct));
 
+    /// <summary>Активні записи за навичкою разом з її назвою (JOIN, Dapper multi-mapping).</summary>
+    [HttpGet("by-skill/{skillId:int}")]
+    [ProducesResponseType<IReadOnlyList<UserSkillSummaryDto>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<IReadOnlyList<UserSkillSummaryDto>>> ListBySkill(
+        int skillId, [FromQuery] string? type, [FromQuery] int limit = 20,
+        CancellationToken ct = default)
+        => Ok(await userSkills.ListBySkillAsync(skillId, type, limit, ct));
+
     /// <summary>Запис із деталями, мовами та доступністю.</summary>
     [HttpGet("{id:int}")]
     [ProducesResponseType<UserSkillDto>(StatusCodes.Status200OK)]

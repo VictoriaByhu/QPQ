@@ -34,6 +34,20 @@ public sealed class UserSkillService(IUnitOfWork uow, IMapper mapper) : IUserSki
         return mapper.Map<IReadOnlyList<UserSkillSummaryDto>>(rows);
     }
 
+    public async Task<IReadOnlyList<UserSkillSummaryDto>> ListBySkillAsync(
+        int skillId, string? type, int limit, CancellationToken ct = default)
+    {
+        if (skillId < 1)
+            throw new ValidationException("skillId must be positive.");
+        if (type is not null && !UserSkillTypes.IsValid(type))
+            throw new ValidationException("Type must be Offer or Want.");
+        if (limit < 1 || limit > 100)
+            throw new ValidationException("limit must be in 1..100.");
+
+        var rows = await uow.UserSkills.ListBySkillAsync(skillId, type, limit, ct);
+        return mapper.Map<IReadOnlyList<UserSkillSummaryDto>>(rows);
+    }
+
     public async Task<UserSkillDto> GetByIdAsync(int id, CancellationToken ct = default)
     {
         var userSkill = await uow.UserSkills.GetFullAsync(id, ct)

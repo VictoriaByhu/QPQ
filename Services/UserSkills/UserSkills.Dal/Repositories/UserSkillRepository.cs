@@ -69,6 +69,48 @@ public sealed class UserSkillRepository : BaseDapperRepository<UserSkill>, IUser
         }
     }
 
+    /// <summary>
+    /// Dapper multi-mapping: один JOIN повертає UserSkill і Skill, а <c>splitOn: "Id"</c>
+    /// каже, з якого стовпця починається другий об'єкт. Назва навички переноситься в UserSkill.SkillName.
+    /// Усі значення йдуть параметрами; запит використовує індекс IX_UserSkills_Skill_Type.
+    /// </summary>
+    public async Task<IReadOnlyList<UserSkill>> ListBySkillAsync(
+        int skillId, string? type, int limit, CancellationToken ct = default)
+    {
+        const string sql = """
+            SELECT TOP (@Limit)
+                   us.Id, us.UserId, us.SkillId, us.Type, us.Level, us.Status,
+                   us.CreatedAt, us.CreatedBy, us.UpdatedAt, us.RowVersion,
+                   s.Id, s.Name
+            FROM dbo.UserSkills AS us
+            INNER JOIN dbo.Skills AS s ON s.Id = us.SkillId
+            WHERE us.SkillId = @SkillId
+              AND us.IsDeleted = 0
+              AND us.Status = N'Active'
+              AND (@Type IS NULL OR us.Type = @Type)
+            ORDER BY us.Level DESC, us.Id
+            """;
+
+        await EnsureOpenAsync(ct);
+        try
+        {
+            var rows = await Connection.QueryAsync<UserSkill, Skill, UserSkill>(
+                new CommandDefinition(sql, new { SkillId = skillId, Type = type, Limit = limit },
+                    Transaction, cancellationToken: ct),
+                (userSkill, skill) =>
+                {
+                    userSkill.SkillName = skill.Name;
+                    return userSkill;
+                },
+                splitOn: "Id");
+            return rows.ToList();
+        }
+        catch (SqlException ex) when (SqlExceptionTranslator.IsKnown(ex))
+        {
+            throw SqlExceptionTranslator.Translate(ex);
+        }
+    }
+
     public async Task<int> AddFullAsync(UserSkill entity, CancellationToken ct = default)
     {
         await EnsureOpenAsync(ct);
