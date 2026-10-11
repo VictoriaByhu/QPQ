@@ -536,3 +536,80 @@ erDiagram
 | `ux_matches_offer` (унікальний) | одна пара на комбінацію «хто, кому, яку навичку» |
 | `ix_matches_user_status_score` | список пар користувача за оцінкою без відкинутих |
 | `ttl_matches_expiresAt` (TTL) | автоматичне видалення застарілих пар |
+
+## Лабораторна 2: UserSkills (ADO.NET + Dapper)
+
+Сервіс піддомену **Skills** `UserSkills`: які навички людина пропонує (`Offer`) чи хоче вивчити (`Want`), мови викладання та вікна доступності. База: `QPQ_UserSkills` (SQL Server). Повний опис, таблиця помилок і чекліст перед здачею: [Services/UserSkills/README.md](Services/UserSkills/README.md).
+
+### Схема рішення
+
+```
+Platform.slnx                   одне рішення на всю платформу
+Platform.AppHost/               оркестрація .NET Aspire
+Services/UserSkills/
+├── UserSkills.Domain           моделі, константи, доменні винятки
+├── UserSkills.Dal              ADO.NET + Dapper, Unit of Work, SqlExceptionTranslator
+├── UserSkills.Bll              DTO, AutoMapper, сервіси з транзакціями
+├── UserSkills.Api              контролери, ProblemDetails, Swagger, Serilog
+└── UserSkills.Tests            unit-тести BLL
+```
+
+Залежності: `Api -> Bll -> Dal`, `Domain` підключають `Dal` і `Bll`. SQL існує лише в `Dal` та в процедурах бази.
+
+### Розгортання бази UserSkills
+
+Скрипти ідемпотентні, запускати по черзі:
+
+```
+sqlcmd -S "<host>,<port>" -U <login> -C -f 65001 -i db/p1/userskills.schema.sql
+sqlcmd -S "<host>,<port>" -U <login> -C -f 65001 -i db/p1/userskills.procedures.sql
+sqlcmd -S "<host>,<port>" -U <login> -C -f 65001 -i db/p1/userskills.seed.sql
+```
+
+Для LocalDB: `-S "(localdb)\MSSQLLocalDB" -E` замість `-S ... -U ... -C`.
+
+### Запуск через .NET Aspire
+
+1. Збережіть рядок підключення в User Secrets AppHost (пароль не потрапляє в git):
+
+```
+   cd Platform.AppHost
+   dotnet user-secrets set "ConnectionStrings:UserSkillsDb" "Server=<host>,<port>;Database=QPQ_UserSkills;User Id=<login>;Password=<password>;Encrypt=True;TrustServerCertificate=True;"
+```
+
+   У `appsettings.json` лежить лише шаблон (LocalDB), реальне значення перекривають Aspire і User Secrets.
+
+2. Запустіть AppHost:
+
+```
+   dotnet run --project Platform.AppHost
+```
+
+3. Відкрийте Aspire Dashboard за посиланням з консолі (`https://localhost:17100`): ресурс `userskills-api` має статус *Running*, посилання веде на Swagger (`https://localhost:7139/swagger`).
+
+Користувач передається заголовком `X-User-Id` (у Swagger кнопка **Authorize**); у production його замінить claim `sub` з Identity.
+
+### Приклади запитів (UserSkills)
+
+```
+curl -k -X POST https://localhost:7139/api/user-skills \
+  -H "X-User-Id: 11111111-1111-1111-1111-111111111111" -H "Content-Type: application/json" \
+  -d '{"skillId":1,"type":"Offer","level":4,"languages":[{"languageCode":"uk","proficiency":5}],"slots":[{"dayOfWeek":1,"startTime":"18:00","endTime":"20:00"}]}'
+
+curl -k "https://localhost:7139/api/user-skills?type=Offer&status=Active&pageNumber=1&pageSize=20" \
+  -H "X-User-Id: 11111111-1111-1111-1111-111111111111"
+
+curl -k https://localhost:7139/api/user-skills/1 -H "X-User-Id: 11111111-1111-1111-1111-111111111111"
+
+curl -k -X POST https://localhost:7139/api/user-skills/1/status \
+  -H "X-User-Id: 11111111-1111-1111-1111-111111111111" -H "Content-Type: application/json" \
+  -d '{"newStatus":"Paused","rowVersion":"<rowVersion з попередньої відповіді>"}'
+
+curl -k https://localhost:7139/api/user-skills/999999 -H "X-User-Id: 11111111-1111-1111-1111-111111111111"   # 404, ProblemDetails
+```
+
+### Тести
+
+```
+dotnet test Services/UserSkills/UserSkills.Tests
+```
