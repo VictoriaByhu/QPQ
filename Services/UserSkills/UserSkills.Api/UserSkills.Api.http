@@ -1,6 +1,78 @@
-@UserSkills.Api_HostAddress = http://localhost:5241
+@host = http://localhost:5000
+@userId = 11111111-1111-1111-1111-111111111111
 
-GET {{UserSkills.Api_HostAddress}}/weatherforecast/
-Accept: application/json
+### Довідники (лише читання)
+GET {{host}}/api/skills
 
 ###
+GET {{host}}/api/languages
+
+###
+GET {{host}}/api/languages/uk
+
+### Додати навичку (201 + Location)
+POST {{host}}/api/user-skills
+X-User-Id: {{userId}}
+Content-Type: application/json
+
+{
+  "skillId": 1,
+  "type": "Offer",
+  "level": 4,
+  "description": "Навчаю основ C#",
+  "experienceYears": 3,
+  "languages": [ { "languageCode": "uk", "proficiency": 5 } ],
+  "slots": [ { "dayOfWeek": 1, "startTime": "18:00", "endTime": "20:00" } ]
+}
+
+### Список моїх навичок
+GET {{host}}/api/user-skills?type=Offer&status=Active&pageNumber=1&pageSize=20
+X-User-Id: {{userId}}
+
+### Запис за Id (підставте Id з відповіді POST)
+GET {{host}}/api/user-skills/1
+
+### Оновити (RowVersion — з попередньої відповіді)
+PUT {{host}}/api/user-skills/1
+X-User-Id: {{userId}}
+Content-Type: application/json
+
+{
+  "rowVersion": "AAAAAAAAB9E=",
+  "level": 5,
+  "description": "Оновлений опис",
+  "languages": [ { "languageCode": "uk", "proficiency": 5 } ],
+  "slots": []
+}
+
+### Змінити статус (транзакція: запис + журнал)
+POST {{host}}/api/user-skills/1/status
+X-User-Id: {{userId}}
+Content-Type: application/json
+
+{ "newStatus": "Paused", "rowVersion": "AAAAAAAAB9E=", "comment": "Відпустка" }
+
+### Журнал статусів (лише власник)
+GET {{host}}/api/user-skills/1/history
+X-User-Id: {{userId}}
+
+### Видалити (rowVersion: символ + передавати як %2B)
+DELETE {{host}}/api/user-skills/1?rowVersion=AAAAAAAAB9E%3D
+X-User-Id: {{userId}}
+
+### 404: неіснуючий Id
+GET {{host}}/api/user-skills/999999
+
+### 400: некоректний запит
+POST {{host}}/api/user-skills
+X-User-Id: {{userId}}
+Content-Type: application/json
+
+{ "skillId": 0, "type": "Sell", "level": 9 }
+
+### 409: недопустимий перехід статусу (Archived -> Active) або застаріла RowVersion
+POST {{host}}/api/user-skills/1/status
+X-User-Id: {{userId}}
+Content-Type: application/json
+
+{ "newStatus": "Active", "rowVersion": "AAAAAAAAAAA=" }
