@@ -3,6 +3,7 @@ using MongoDB.Bson.Serialization.Attributes;
 
 namespace QPQ.ReviewService.Models
 {
+    [BsonIgnoreExtraElements]
     public class Review
     {
         [BsonId]
