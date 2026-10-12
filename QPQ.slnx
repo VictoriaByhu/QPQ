@@ -1,4 +1,5 @@
 <Solution>
-  <Folder Name="/docs/" />
-  <Project Path="SwapService/SwapService.csproj" />
+	<Folder Name="/docs/" />
+	<Project Path="SwapService/SwapService.csproj" />
+	<Project Path="QPQ.ReviewService/QPQ.ReviewService.csproj" />
 </Solution>
