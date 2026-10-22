@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Services\Sessions\Sessions.Api\Sessions.Api.csproj" />
     <ProjectReference Include="..\Services\Swaps\Swaps.Api\Swaps.Api.csproj" />
   </ItemGroup>
 

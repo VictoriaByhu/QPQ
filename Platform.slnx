@@ -1,4 +1,10 @@
 <Solution>
+  <Folder Name="/Services/Sessions/">
+    <Project Path="Services/Sessions/Sessions.Api/Sessions.Api.csproj" />
+    <Project Path="Services/Sessions/Sessions.Bll/Sessions.Bll.csproj" />
+    <Project Path="Services/Sessions/Sessions.Dal/Sessions.Dal.csproj" />
+    <Project Path="Services/Sessions/Sessions.Domain/Sessions.Domain.csproj" />
+  </Folder>
   <Folder Name="/Services/Swaps/">
     <Project Path="Services/Swaps/Swaps.Api/Swaps.Api.csproj" />
     <Project Path="Services/Swaps/Swaps.Bll/Swaps.Bll.csproj" />
