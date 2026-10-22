@@ -362,3 +362,218 @@ curl -i "$BASE/api/swaps/1/history" -H "X-User-Id: $U1"
 }
 ```
 
+## Sessions API (Лабораторна 3)
+
+Мікросервіс Sessions (Проєкт №2) реалізовано на EF Core за підходом Code-First: схему бази створюють міграції з моделей, а не SQL-скрипти. Сервіс працює з окремою базою `QPQ_SessionsEf`, щоб не конфліктувати з базою `QPQ_Sessions`, яку створюють скрипти `db/p2` з Лаб. 1.
+
+### Структура
+
+```
+Services/Sessions/
+    Sessions.Api/        контролери, Program.cs, обробка помилок, Serilog, Swagger
+    Sessions.Bll/        сервіси, DTO, профіль AutoMapper, специфікації, валідатори
+    Sessions.Dal/        DbContext, Configurations/, Migrations/, репозиторії, Unit of Work, DbInitializer
+    Sessions.Domain/     сутності з бізнес-правилами, константи, доменні винятки
+```
+
+```
+HTTP -> Sessions.Api -> Sessions.Bll -> Sessions.Dal (EF Core) -> SQL Server (QPQ_SessionsEf)
+```
+
+Контролери працюють лише із сервісами, сервіси працюють лише з `IUnitOfWork`, а `DbContext` використовується тільки в `Sessions.Dal`.
+
+### Модель і Fluent API
+
+| Сутність | Таблиця | Зв'язок | Правила в сутності |
+|---|---|---|---|
+| `SessionFormat` | SessionFormats | 1:N до Sessions | код і назва обов'язкові |
+| `Skill` | Skills | M:N із Sessions через SessionSkills | назва до 100 символів |
+| `AcceptedSwap` | AcceptedSwaps | 1:N до Sessions | учасники різні; зустрічі можна планувати лише для обміну в статусі Accepted |
+| `Session` | Sessions | головна сутність | тривалість 1–1440 хв; Online вимагає посилання, InPerson місце; змінювати можна лише Planned; сума `PlannedMinutes` навичок не перевищує тривалість; завершену зустріч не можна видалити |
+| `SessionSkill` | SessionSkills | проміжна сутність M:N з полями `PlannedMinutes`, `AddedAt` | хвилини > 0, навичка не повторюється |
+| `SessionOutcome` | SessionOutcomes | 1:1 із Sessions (PK = FK) | фактична тривалість > 0 |
+
+Властивості сутностей мають `private set`, стан змінюється лише методами (`Reschedule`, `ChangePlace`, `AddSkill`, `RemoveSkill`, `Complete`, `Cancel`, `Delete`). Порушення правила дає `DomainException`.
+
+Кожна сутність має свій клас `IEntityTypeConfiguration<T>` у `Sessions.Dal/Configurations`. Усі вони підключаються одним рядком `ApplyConfigurationsFromAssembly` в `SessionsDbContext.OnModelCreating`. У конфігураціях задано:
+
+- назви таблиць, ключі (складений `SessionSkills (SessionId, SkillId)`), довжини рядків, `tinyint` для формату, `rowversion`;
+- CHECK: `CK_Sessions_Duration`, `CK_Sessions_Status`, `CK_Sessions_Place`, `CK_SessionSkills_Minutes`, `CK_SessionOutcomes_Duration`, `CK_AcceptedSwaps_Status`, `CK_AcceptedSwaps_Parties`;
+- унікальні індекси: `UQ_SessionFormats_Code`, `UX_Skills_Name` і `UX_Sessions_Swap_Time` (фільтр `[IsDeleted] = 0`);
+- м'яке видалення зустрічей через глобальний фільтр `HasQueryFilter(s => !s.IsDeleted)`;
+- `RowVersion` як маркер оптимістичної конкурентності.
+
+У базі всі FK мають `NO ACTION`. Для `SessionSkills` і `SessionOutcomes` задано `ClientCascade`: коли навичку прибирають із колекції зустрічі, EF видаляє рядок сам, а каскаду на рівні БД немає.
+
+### Міграції
+
+```
+dotnet tool install --global dotnet-ef
+dotnet ef migrations add InitialCreate --project Services/Sessions/Sessions.Dal --startup-project Services/Sessions/Sessions.Api --output-dir Migrations
+dotnet ef database update --project Services/Sessions/Sessions.Dal --startup-project Services/Sessions/Sessions.Api -- --environment Development
+dotnet ef migrations script --idempotent --project Services/Sessions/Sessions.Dal --startup-project Services/Sessions/Sessions.Api --output Services/Sessions/Sessions.Dal/Migrations/InitialCreate.sql
+```
+
+Міграція `InitialCreate` лежить у `Sessions.Dal/Migrations`, згенерований ідемпотентний SQL-скрипт у `Sessions.Dal/Migrations/InitialCreate.sql`. Окремо застосовувати міграцію не обов'язково: під час старту сервіс сам викликає `MigrateAsync()`.
+
+### Початкові дані
+
+| Режим | Де | Що |
+|---|---|---|
+| модельний | `HasData` у `SessionFormatConfiguration`, `SkillConfiguration` | довідник форматів (1 Online, 2 InPerson) і навички 1–6 з фіксованими Id, потрапляють у міграцію |
+| програмний | `DbInitializer.SeedAsync` після `MigrateAsync()` у `Program.cs` | обміни 2 (U2 → U3, Accepted) і 3 (U3 → U1, Completed), зустрічі 1–3 з навичками, підсумок зустрічі 3 |
+
+`DbInitializer` перед вставкою перевіряє наявність записів, тому повторний запуск не створює дублікатів. У середовищі Production програмний сідінг не виконується.
+
+### Репозиторії та Unit of Work
+
+`GenericRepository<T>` реалізує `GetByIdAsync`, `GetAllAsync`, `AddAsync`, `Update`, `Delete`, а також `ListAsync` і `CountAsync` за специфікацією через `DbSet<T>`. Збереження змін винесено в `UnitOfWork.SaveChangesAsync()`: його викликають один раз наприкінці бізнес-операції, тому всі зміни записуються однією транзакцією.
+
+| Репозиторій | Спосіб завантаження | Метод |
+|---|---|---|
+| `SessionRepository` | Eager Loading: `Include` / `ThenInclude`, один SQL-запит | `GetWithDetailsAsync`: зустріч з обміном, форматом, підсумком і навичками |
+| `AcceptedSwapRepository` | Explicit Loading: `Entry().Collection().Query().LoadAsync()`, два SQL-запити | `GetWithSessionsAsync`: спочатку обмін, потім його зустрічі |
+| `SessionSkillRepository` | LINQ to Entities через проміжну сутність M:N | `GetBySkillForUserAsync`: зустрічі користувача з певною навичкою разом із `PlannedMinutes` і `AddedAt` |
+
+`UnitOfWork` перетворює `DbUpdateConcurrencyException`, порушення UNIQUE (2601, 2627) і обмежень (547) на `BusinessConflictException`, тобто на відповідь 409.
+
+### Специфікації
+
+Складні вибірки описано класами Ardalis.Specification у `Sessions.Bll/Specifications` і виконуються одним методом репозиторію через `WithSpecification()`:
+
+| Специфікація | Призначення |
+|---|---|
+| `SessionsFilterSpec` | фільтри, сортування та пагінація списку зустрічей |
+| `UpcomingSessionsSpec` | найближчі заплановані зустрічі користувача |
+| `AcceptedSwapsOfUserSpec` | обміни, у яких користувач є учасником |
+| `SkillsByIdsSpec` | перевірка, що всі навички із запиту існують |
+
+### Пагінація, фільтрація, сортування
+
+`GET /api/sessions` приймає параметри:
+
+| Параметр | Значення |
+|---|---|
+| `page` | номер сторінки з 1 |
+| `pageSize` | 1–100, за замовчуванням 10 |
+| `swapId`, `status`, `formatId`, `skillId` | фільтри |
+| `from`, `to` | діапазон `scheduledAt` |
+| `search` | пошук у `location` і `link` |
+| `sortBy` | `scheduledAt` (за замовчуванням), `duration`, `status`, `createdAt` |
+| `sortDir` | `asc` або `desc` |
+
+Метадані повертаються в тілі відповіді:
+
+```json
+{ "items": [ ... ], "totalCount": 3, "page": 2, "pageSize": 1, "totalPages": 3, "hasNext": true, "hasPrevious": true }
+```
+
+Фільтри, `ORDER BY`, `OFFSET/FETCH` і `COUNT(*)` виконує SQL Server. У пам'ять потрапляє лише потрібна сторінка, це видно в лозі SQL-команд.
+
+### Валідація та помилки
+
+Прості правила задано атрибутами DataAnnotations на DTO (`Range`, `StringLength`, `Required`). Якщо вони не виконані, `[ApiController]` повертає 400 ще до виклику контролера. Правила, що залежать від кількох полів, описано у валідаторах FluentValidation (`Sessions.Bll/Validation`):
+
+- для формату Online потрібне посилання http(s) і не допускається місце, для InPerson навпаки;
+- час зустрічі має бути в майбутньому;
+- навички не повторюються, а їхні хвилини не перевищують тривалість;
+- допустимі `status`, `sortBy`, `sortDir` і `from <= to`.
+
+Валідатори реєструються через `AddValidatorsFromAssemblyContaining` і викликаються в контролері явно. В обох випадках клієнт отримує `ValidationProblemDetails` з помилками по полях.
+
+Винятки перетворює `DomainExceptionHandler` (`IExceptionHandler`):
+
+| Виняток | Статус |
+|---|---|
+| `NotFoundException` | 404 |
+| `ValidationException` | 400 |
+| `BusinessConflictException`, `DomainException` | 409 |
+| `UnauthorizedAccessException` | 401 |
+| інші | 500 (деталі винятку лише в Development) |
+
+Кожен виняток логується один раз, в обробнику.
+
+### Логування
+
+Serilog налаштовано в `Services/Sessions/Sessions.Api/appsettings.json` (розділ `Serilog`), вивід у консоль. `LogContextMiddleware` додає до кожного запису властивості `CorrelationId` (заголовок `X-Correlation-Id` або TraceIdentifier, повертається у відповіді), `UserId` і `RequestPath`. Рівень `Microsoft.EntityFrameworkCore.Database.Command` дорівнює `Information`, тому SQL-запити EF видно в лозі. У Development додатково увімкнено `EnableSensitiveDataLogging` для значень параметрів. Рівні можна змінити змінними оточення, наприклад `Serilog__MinimumLevel__Override__Microsoft.EntityFrameworkCore.Database.Command=Warning`.
+
+### Запуск
+
+Потрібно: .NET 10 SDK і SQL Server LocalDB. Базу створювати не потрібно, її створять міграції.
+
+```
+dotnet run --project Platform.AppHost
+```
+
+В Aspire Dashboard з'явиться ресурс `sessions-api`. Рядок підключення `SessionsDb` лежить в `Platform.AppHost/appsettings.json`. Без Aspire сервіс запускається окремо:
+
+```
+dotnet run --project Services/Sessions/Sessions.Api
+```
+
+Swagger відкривається на `http://localhost:5190/swagger`, рядок підключення береться з `Services/Sessions/Sessions.Api/appsettings.json` або зі змінної `ConnectionStrings__SessionsDb`. Як і у Swaps, користувача в Development задають заголовком `X-User-Id`. Зустрічі обміну 2 бачать U2 і U3, зустріч 3 бачать U3 і U1.
+
+### Ендпоінти
+
+| Метод і шлях | Успіх | Помилки |
+|---|---|---|
+| `GET /api/sessions?page=&pageSize=&status=&formatId=&swapId=&skillId=&from=&to=&search=&sortBy=&sortDir=` | 200 | 400, 401 |
+| `GET /api/sessions/upcoming?take=` | 200 | 400, 401 |
+| `GET /api/sessions/{id}` | 200 | 401, 404 |
+| `POST /api/sessions` | 201 + Location | 400, 404, 409 |
+| `PUT /api/sessions/{id}` | 200 | 400, 404, 409 |
+| `POST /api/sessions/{id}/complete` | 200 | 400, 404, 409 |
+| `POST /api/sessions/{id}/cancel` | 204 | 404, 409 |
+| `DELETE /api/sessions/{id}` | 204 | 404, 409 |
+| `POST /api/sessions/{id}/skills` | 200 | 400, 404, 409 |
+| `DELETE /api/sessions/{id}/skills/{skillId}` | 204 | 404, 409 |
+| `GET /api/accepted-swaps?status=` | 200 | 400, 401 |
+| `GET /api/accepted-swaps/{swapId}/sessions` | 200 | 401, 404 |
+| `GET /api/skills` | 200 | |
+| `GET /api/skills/{id}/sessions?from=` | 200 | 401, 404 |
+
+Зміни зустрічі приймають необов'язкове поле `rowVersion` (Base64 з попередньої відповіді). Якщо його не передано, береться поточна версія, а застаріла версія дає 409.
+
+### Приклади запитів
+
+```
+BASE=http://localhost:5190
+U2=7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02
+U3=b19e6a33-2c5d-47f8-8d14-9a0b3e6f5c03
+```
+
+Пагінація і сортування (друга сторінка, `totalCount` рахує всі зустрічі користувача):
+
+```
+curl -i "$BASE/api/sessions?page=2&pageSize=1&sortBy=scheduledAt&sortDir=desc" -H "X-User-Id: $U3"
+```
+
+Створення зустрічі (201 і `Location`), повторне створення на той самий час дає 409:
+
+```
+curl -i -X POST "$BASE/api/sessions" -H "X-User-Id: $U2" -H "Content-Type: application/json" \
+  -d '{"swapId":2,"formatId":1,"scheduledAt":"2026-12-01T16:00:00Z","durationMinutes":60,"link":"https://meet.google.com/xyz","skills":[{"skillId":2,"plannedMinutes":30}]}'
+```
+
+Помилка валідації (400 з помилками по полях `Link`, `Location`, `ScheduledAt`):
+
+```
+curl -i -X POST "$BASE/api/sessions" -H "X-User-Id: $U2" -H "Content-Type: application/json" \
+  -d '{"swapId":2,"formatId":2,"scheduledAt":"2020-01-01T10:00:00Z","durationMinutes":60,"link":"ftp://x"}'
+```
+
+Зустріч для завершеного обміну 3 (409) і неіснуюча зустріч (404):
+
+```
+curl -i -X POST "$BASE/api/sessions" -H "X-User-Id: $U3" -H "Content-Type: application/json" \
+  -d '{"swapId":3,"formatId":1,"scheduledAt":"2026-12-01T16:00:00Z","durationMinutes":60,"link":"https://zoom.us/j/1"}'
+curl -i "$BASE/api/sessions/9999" -H "X-User-Id: $U2"
+```
+
+Eager і Explicit Loading (у лозі один і два SQL-запити відповідно):
+
+```
+curl -i "$BASE/api/sessions/1" -H "X-User-Id: $U2"
+curl -i "$BASE/api/accepted-swaps/2/sessions" -H "X-User-Id: $U2"
+```
+
