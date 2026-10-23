@@ -1,15 +1,25 @@
+using Microsoft.EntityFrameworkCore;
 using QPQ.Moderation.Api.Infrastructure;
 using QPQ.Moderation.Bll.Interfaces;
 using QPQ.Moderation.Bll.Mapping;
 using QPQ.Moderation.Bll.Services;
-using QPQ.Moderation.Dal; // Тепер він тягнеться з правильної папки
+using QPQ.Moderation.Dal;
 using Serilog;
+using Serilog.Events;
+using FluentValidation;
+using QPQ.Moderation.Bll.Validators;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Налаштування логування Serilog
+builder.Services.AddControllers();
+
+// Реєстрація валідаторів FluentValidation
+builder.Services.AddValidatorsFromAssemblyContaining<CreateReportDtoValidator>();
+
+// Налаштування логування Serilog (з SQL-запитами)
 builder.Host.UseSerilog((ctx, cfg) => cfg
     .ReadFrom.Configuration(ctx.Configuration)
+    .MinimumLevel.Override("Microsoft.EntityFrameworkCore.Database.Command", LogEventLevel.Information)
     .Enrich.FromLogContext()
     .WriteTo.Console());
 
@@ -17,8 +27,12 @@ builder.Host.UseSerilog((ctx, cfg) => cfg
 var connectionString = builder.Configuration.GetConnectionString("ModerationDb")
     ?? throw new InvalidOperationException("Connection string 'ModerationDb' is missing");
 
-// Реєстрація залежностей (DI)
-builder.Services.AddScoped<IUnitOfWork>(_ => new UnitOfWork(connectionString));
+// ПІДКЛЮЧЕННЯ EF CORE
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseSqlServer(connectionString));
+
+// Реєстрація репозиторіїв та сервісів
+builder.Services.AddScoped<QPQ.Moderation.Dal.Interfaces.IUnitOfWork, QPQ.Moderation.Dal.UnitOfWork.UnitOfWork>();
 builder.Services.AddScoped<IReportService, ReportService>();
 
 // Реєстрація AutoMapper
@@ -32,13 +46,13 @@ builder.Services.AddProblemDetails(o => o.CustomizeProblemDetails = ctx =>
     ctx.ProblemDetails.Extensions["traceId"] = ctx.HttpContext.TraceIdentifier);
 builder.Services.AddExceptionHandler<DomainExceptionHandler>();
 
-builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-app.UseExceptionHandler(); // Включаємо наш глобальний обробник помилок
+app.UseExceptionHandler(); // Глобальний обробник помилок
+app.UseSerilogRequestLogging(); // Логування HTTP-запитів
 
 if (app.Environment.IsDevelopment())
 {
@@ -48,5 +62,17 @@ if (app.Environment.IsDevelopment())
 
 app.UseAuthorization();
 app.MapControllers();
+
+// Міграції та сідінг
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await db.Database.MigrateAsync();
+
+    if (app.Environment.IsDevelopment())
+    {
+        await QPQ.Moderation.Dal.DbInitializer.SeedAsync(db);
+    }
+}
 
 app.Run();

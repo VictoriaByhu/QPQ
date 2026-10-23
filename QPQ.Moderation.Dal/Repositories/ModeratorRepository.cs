@@ -1,37 +1,25 @@
-using System.Data;
-using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
 using QPQ.Moderation.Dal.Interfaces;
+using QPQ.Moderation.Domain.Entities;
 using QPQ.Moderation.Domain;
 
 namespace QPQ.Moderation.Dal.Repositories;
 
-public sealed class ModeratorRepository : IModeratorRepository
+public class ModeratorRepository : Repository<Moderator>, IModeratorRepository
 {
-    private readonly SqlConnection _connection;
-    private readonly Func<SqlTransaction?> _currentTransaction;
+    public ModeratorRepository(AppDbContext context) : base(context) { }
 
-    public ModeratorRepository(SqlConnection connection, Func<SqlTransaction?> currentTransaction)
+    public async Task<Moderator?> GetModeratorWithAssignmentsAsync(int id, CancellationToken ct = default)
     {
-        _connection = connection;
-        _currentTransaction = currentTransaction;
-    }
+        var moderator = await _dbSet.FirstOrDefaultAsync(m => m.Id == id, ct);
 
-    public async Task<Moderator?> GetByIdAsync(long id, CancellationToken ct = default)
-    {
-        const string sql = "SELECT Id, Username, Email FROM dbo.Moderators WHERE Id = @Id AND IsDeleted = 0";
-        if (_connection.State != ConnectionState.Open) await _connection.OpenAsync(ct);
-
-        await using var command = new SqlCommand(sql, _connection, _currentTransaction());
-        command.Parameters.Add("@Id", SqlDbType.BigInt).Value = id; // Çàõèñò â³ä ³í'ºêö³é
-
-        await using var reader = await command.ExecuteReaderAsync(ct);
-        if (!await reader.ReadAsync(ct)) return null;
-
-        return new Moderator
+        if (moderator != null)
         {
-            Id = reader.GetInt64(0),
-            Username = reader.GetString(1),
-            Email = reader.GetString(2)
-        };
+            await _context.Entry(moderator)
+                .Collection(m => m.Assignments)
+                .LoadAsync(ct);
+        }
+
+        return moderator;
     }
 }

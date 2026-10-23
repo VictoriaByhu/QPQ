@@ -1,9 +1,7 @@
 namespace QPQ.Moderation.Bll.DTOs;
 
-public record ReportDto(
-    long Id,
-    long TargetUserId,
-    string TargetUserDisplayName,
-    string Status,
-    string FullDescription
-);
+// DTO для повернення даних
+public record ReportDto(int Id, string Title, string Status);
+
+// DTO для створення скарги
+public record CreateReportDto(string Title);

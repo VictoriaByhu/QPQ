@@ -1,8 +1,10 @@
+using QPQ.Moderation.Domain.Entities;
 using QPQ.Moderation.Domain;
 
 namespace QPQ.Moderation.Dal.Interfaces;
 
-public interface IModeratorRepository
+public interface IModeratorRepository : IRepository<Moderator>
 {
-    Task<Moderator?> GetByIdAsync(long id, CancellationToken ct = default);
+    // Explicit Loading: завантажуЇмо модератора, а його скарги Ч окремим запитом за потреби
+    Task<Moderator?> GetModeratorWithAssignmentsAsync(int id, CancellationToken ct = default);
 }

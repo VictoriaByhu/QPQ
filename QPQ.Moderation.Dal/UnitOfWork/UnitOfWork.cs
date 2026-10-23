@@ -1,57 +1,32 @@
-using System.Data;
-using Microsoft.Data.SqlClient;
 using QPQ.Moderation.Dal.Interfaces;
 using QPQ.Moderation.Dal.Repositories;
 
-namespace QPQ.Moderation.Dal;
+namespace QPQ.Moderation.Dal.UnitOfWork;
 
-public sealed class UnitOfWork : IUnitOfWork
+public class UnitOfWork : IUnitOfWork
 {
-    private readonly SqlConnection _connection;
-    private SqlTransaction? _transaction;
+    private readonly AppDbContext _context;
 
-    public UnitOfWork(string connectionString)
+    public UnitOfWork(AppDbContext context)
     {
-        _connection = new SqlConnection(connectionString);
-        // Усі репозиторії отримують ОДНЕ підключення і доступ до поточної транзакції
-        Moderators = new ModeratorRepository(_connection, () => _transaction);
-        Reports = new ReportRepository(_connection, () => _transaction);
-        ViolationTypes = new ViolationTypeRepository(_connection, () => _transaction);
+        _context = context;
+        Reports = new ReportRepository(_context);
+        Moderators = new ModeratorRepository(_context);
+        ReportAssignments = new ReportAssignmentRepository(_context);
     }
 
-    public IModeratorRepository Moderators { get; }
     public IReportRepository Reports { get; }
-    public IViolationTypeRepository ViolationTypes { get; }
+    public IModeratorRepository Moderators { get; }
+    public IReportAssignmentRepository ReportAssignments { get; }
 
-    public async Task BeginTransactionAsync(IsolationLevel level = IsolationLevel.ReadCommitted, CancellationToken ct = default)
+    public async Task<int> SaveChangesAsync(CancellationToken ct = default)
     {
-        if (_connection.State != ConnectionState.Open) await _connection.OpenAsync(ct);
-        _transaction = (SqlTransaction)await _connection.BeginTransactionAsync(level, ct);
+        return await _context.SaveChangesAsync(ct);
     }
 
-    public async Task CommitAsync(CancellationToken ct = default)
+    public void Dispose()
     {
-        if (_transaction != null)
-        {
-            await _transaction.CommitAsync(ct);
-            await _transaction.DisposeAsync();
-            _transaction = null;
-        }
-    }
-
-    public async Task RollbackAsync(CancellationToken ct = default)
-    {
-        if (_transaction != null)
-        {
-            await _transaction.RollbackAsync(ct);
-            await _transaction.DisposeAsync();
-            _transaction = null;
-        }
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (_transaction != null) await _transaction.DisposeAsync();
-        await _connection.DisposeAsync();
+        _context.Dispose();
+        GC.SuppressFinalize(this);
     }
 }
