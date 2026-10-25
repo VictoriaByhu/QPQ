@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/Services/Messages/">
+    <Project Path="Services/Messages/Messages.Application/Messages.Application.csproj" />
     <Project Path="Services/Messages/Messages.Domain/Messages.Domain.csproj" />
   </Folder>
   <Folder Name="/Services/Sessions/">
