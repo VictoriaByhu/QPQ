@@ -577,3 +577,239 @@ curl -i "$BASE/api/sessions/1" -H "X-User-Id: $U2"
 curl -i "$BASE/api/accepted-swaps/2/sessions" -H "X-User-Id: $U2"
 ```
 
+## Messages API (Лабораторна 4)
+
+Мікросервіс Messages (Проєкт №3) побудовано за Clean Architecture з CQRS на MediatR. Він працює з MongoDB-базою `QPQ_Messages` з Лаб. 1: ті самі колекції, назви полів, індекси та початкові дані.
+
+### Шари і залежності
+
+```
+Services/Messages/
+    Messages.Domain/          Common (BaseEntity, ValueObject, Guard), Entities, ValueObjects, Enums, Constants, Exceptions, Interfaces
+    Messages.Application/     Common (Behaviors, Interfaces, Mapping, Messaging, Models, Validation), Conversations/, Messages/, Attachments/
+    Messages.Infrastructure/  Persistence (MongoDbContext, MongoMappings, Repositories, Queries), Seeding, HealthChecks
+    Messages.WebApi/          Controllers, Contracts, Middleware, Program.cs, appsettings.*.json
+```
+
+```
+HTTP -> Controller -> ISender -> LoggingBehavior -> ValidationBehavior -> PerformanceBehavior -> Handler
+                                                                                                    |
+                         Domain: IConversationRepository, IMessageRepository, IAttachmentRepository
+                         Application: IMessageQueries
+                                                                                                    |
+                         Infrastructure: реалізації на MongoDB.Driver -> MongoDB (QPQ_Messages)
+```
+
+| Проєкт | Посилається на | Пакети |
+|---|---|---|
+| Messages.Domain | нічого | `MongoDB.Bson` (лише тип `ObjectId`) |
+| Messages.Application | Domain | MediatR 12, FluentValidation, AutoMapper 15 |
+| Messages.Infrastructure | Application, Domain | MongoDB.Driver, Options, Hosting, HealthChecks |
+| Messages.WebApi | Application, Infrastructure (лише для `AddInfrastructure`) | Swashbuckle, Serilog.AspNetCore |
+
+Кожен шар реєструє себе одним методом: `AddApplication` (MediatR, behaviors, валідатори, AutoMapper) і `AddInfrastructure` (MongoDB, репозиторії, запити, сідінг, індекси, health check). Контролери й обробники не бачать `IMongoCollection`: колекції використовуються лише в репозиторіях і `MessageQueries`.
+
+### Домен
+
+| Сутність | Колекція | Правила |
+|---|---|---|
+| `Conversation` | conversations | рівно два різні учасники (Initiator, Partner); статус обміну змінюється лише з Accepted на Completed або Cancelled; у скасовану розмову не можна писати; розмову активного обміну не можна видалити; `lastMessage` оновлюється разом із новим повідомленням |
+| `Message` (абстрактна) | messages | `TextMessage` (текст 1–4000, редагування з `editedAt`), `FileMessage` (1–10 вкладень без повторів, підпис до 1000), `SystemMessage` (події SwapAccepted, SwapCompleted, SwapCancelled, не видаляється); змінювати й видаляти повідомлення може лише автор, видалення м'яке |
+| `Attachment` | attachments | абсолютний http(s) URL до 500 символів, розмір 0–50 МБ, тип і назва файлу обов'язкові |
+
+Усі сутності успадковують `BaseEntity` (`Id: ObjectId`, `CreatedAt`, `UpdatedAt`, `Version`), мають приватні setter-и та змінюють стан лише методами. Вкладені колекції (`participants`, `attachments`) зберігаються в приватних полях, назовні доступні тільки як `IReadOnlyCollection`. Порушення правил дає `DomainException`, відсутній документ `NotFoundException`, застаріла версія `ConflictException`.
+
+Value Objects успадковують `ValueObject` (порівняння за `GetEqualityComponents`), незмінні та перевіряють дані в конструкторі: `Participant` (userId, role, lastReadAt), `LastMessage` (messageId, senderId, preview до 200 символів, sentAt), `AttachmentRef` (attachmentId, fileName), `SystemEventDetails` (swapId).
+
+### Команди та запити
+
+| Команда / запит | Тип | Що робить |
+|---|---|---|
+| `CreateConversationCommand` | `ICommand<ConversationDto>` | створює розмову й системне повідомлення SwapAccepted |
+| `ChangeSwapStatusCommand` | `ICommand` | Completed або Cancelled + системне повідомлення, перевірка версії |
+| `MarkConversationReadCommand` | `ICommand` | оновлює `lastReadAt` учасника |
+| `DeleteConversationCommand` | `ICommand` | видаляє закриту розмову разом із повідомленнями й вкладеннями |
+| `SendTextMessageCommand`, `SendFileMessageCommand` | `ICommand<MessageDto>` | нове повідомлення й оновлення `lastMessage` |
+| `EditTextMessageCommand` | `ICommand` | редагування тексту з перевіркою версії |
+| `DeleteMessageCommand` | `ICommand` | м'яке видалення, `lastMessage` перераховується |
+| `UploadAttachmentCommand` | `ICommand<AttachmentDto>` | реєструє метадані файлу |
+| `GetConversationByIdQuery`, `GetConversationsListQuery` | `IQuery<T>` | розмови поточного користувача |
+| `GetMessageByIdQuery`, `GetMessagesListQuery` | `IQuery<T>` | стрічка повідомлень, фільтр за відправником, повнотекстовий пошук |
+| `GetAttachmentByIdQuery`, `GetAttachmentsListQuery` | `IQuery<T>` | файли розмови |
+
+Кожна операція лежить у власній папці (`Commands/<Назва>/` або `Queries/<Назва>/`) з трьома файлами: запит, обробник (`IRequestHandler`), валідатор. Обробники команд працюють з доменними сутностями через репозиторії та повертають DTO через AutoMapper (`ObjectId` → `string`, enum → `string`, VO → вкладені DTO). Обробники запитів викликають `IMessageQueries`, а він робить aggregation pipeline (`$match`, `$sort`, `$skip`, `$limit`, `$project`) з проєкцією одразу в DTO: `_id` і `conversationId` перетворюються на рядки засобами MongoDB (`$toString`), у застосунок потрапляє лише потрібна сторінка.
+
+### Pipeline Behaviors і валідація
+
+Порядок задано в `AddApplication` через `AddOpenBehavior`: `LoggingBehavior` (зовнішній), `ValidationBehavior`, `PerformanceBehavior` (біля обробника).
+
+- `LoggingBehavior` пише структурований запис `Handling <Request> {...}` і `Handled <Request>`. Якщо запит відхилено валідацією, з'являється `rejected by validation, handler was not called` з переліком помилок.
+- `ValidationBehavior` запускає всі валідатори запиту (`ValidateAsync`), збирає помилки разом і кидає `ValidationException`. Обробник у цьому разі не викликається.
+- `PerformanceBehavior` вимірює час обробника і пише попередження `Slow request`, якщо він довший за 500 мс (у Development також Debug-запис з часом кожного запиту).
+
+Валідатори FluentValidation є для всіх команд і запитів і реєструються `AddValidatorsFromAssembly`. Вони перевіряють формат ObjectId (`ObjectId.TryParse`), GUID користувачів, довжини, допустимі статуси, пагінацію (1–100) і значення `If-Match`. `SendFileMessageCommandValidator` має асинхронне правило з запитом до MongoDB: усі `attachmentIds` мають бути завантажені саме в цю розмову.
+
+Приклад логу для некоректної команди (обробника в лозі немає):
+
+```
+[INF] Messages.Application.Common.Behaviors.LoggingBehavior
+  Handling CreateConversationCommand {"UserId": "b19e6a33-...", "SwapId": 0, "InitiatorId": "x", ...}
+[WRN] Messages.Application.Common.Behaviors.LoggingBehavior
+  CreateConversationCommand rejected by validation, handler was not called: ["SwapId: 'Swap Id' must be greater than '0'.", ...]
+```
+
+### MongoDB: контекст, мапінг, конкурентність
+
+`MongoDbContext` створює `MongoClient` з `IOptions<MongoDbOptions>` (секція `MongoDb`) і надає `IMongoCollection<T>` для `conversations`, `messages`, `attachments`. Репозиторії тримають колекцію в приватному полі.
+
+Домен не містить BSON-атрибутів. Увесь мапінг описано в `MongoMappings.Register()` (викликається один раз в `AddInfrastructure`):
+
+- конвенції camelCase, `IgnoreExtraElements`, enum як рядок;
+- приватні поля `_participants` і `_attachments` мапляться в `participants` і `attachments`;
+- Value Objects створюються через конструктор (`MapCreator`), тому валідація конструктора працює і під час читання;
+- сутності створюються через приватний конструктор без параметрів;
+- поліморфні повідомлення: дискримінатор `type` зі значеннями `text`, `file`, `system`, як у `$jsonSchema` з Лаб. 1;
+- `updatedAt` пишеться лише в conversations, а вкладення зберігають `CreatedAt` як `uploadedAt` і не мають `version`, щоб документи проходили суворий валідатор колекцій.
+
+Оптимістична конкурентність: кожне оновлення виконується `ReplaceOne` з фільтром `{ _id, version }` і збільшує `version`. Якщо документ за цей час змінили, `MatchedCount = 0` і повертається 409. Документи з `seed.js` не мають поля `version`, для них очікувана версія 0 означає «поле відсутнє або 0». У `db/p3/collections.js` до валідаторів conversations і messages додано необов'язкове поле `version` (int).
+
+GET розмови та повідомлення повертає версію в заголовку `ETag` (наприклад `"2"`). Команди зміни приймають її в `If-Match`: якщо версія не збігається, відповідь 409 ще до запису. Без `If-Match` спрацьовує лише перевірка під час `ReplaceOne`.
+
+### Індекси
+
+`IndexCreationService` (`IHostedService`) під час старту створює індекси з тими самими назвами й параметрами, що в `collections.js`, тому повторне створення нічого не змінює:
+
+| Індекс | Колекція | Ключі | Параметри |
+|---|---|---|---|
+| `ux_conversations_swap` | conversations | `swapId: 1` | unique |
+| `ix_conversations_participant` | conversations | `participants.userId: 1` | |
+| `ix_messages_conversation_createdAt` | messages | `conversationId: 1, createdAt: 1` | partial `isDeleted: false` |
+| `ix_messages_sender_createdAt` | messages | `senderId: 1, createdAt: -1` | |
+| `tx_messages_content` | messages | text по `text`, `caption` | `default_language: none` |
+| `ix_attachments_conversation_uploadedAt` | attachments | `conversationId: 1, uploadedAt: -1` | |
+
+### Початкові дані
+
+`IDataSeeder` реалізують `ConversationSeeder`, `AttachmentSeeder`, `MessageSeeder`. Дані лежать у `Messages.Infrastructure/Seeding/Data/*.json` (Extended JSON, ті самі `_id` і значення, що в `db/p3/seed.js`) і вбудовані в збірку. Сідер шукає, яких `_id` ще немає в колекції, і вставляє лише їх одним `InsertManyAsync`, тому повторний запуск не створює дублікатів:
+
+```
+[INF] Seed data for conversations is already present (2 documents)
+```
+
+Сідінг вимикається параметром `MongoDb:SeedData` (у `appsettings.Production.json` він `false`).
+
+### Конфігурація
+
+| Файл | `MongoDb:ConnectionString` | `DatabaseName` |
+|---|---|---|
+| `appsettings.json` | `mongodb://localhost:27017/?maxPoolSize=50&serverSelectionTimeoutMS=5000&connectTimeoutMS=5000` | `QPQ_Messages` |
+| `appsettings.Development.json` | localhost, `maxPoolSize=20`, таймаути 3 с | `QPQ_Messages` |
+| `appsettings.Staging.json` | `mongodb://mongo-staging:27017/...` | `QPQ_Messages_Staging` |
+| `appsettings.Production.json` | `mongodb://mongo:27017/...&retryWrites=true` | `QPQ_Messages` |
+
+Розмір пулу й таймаути задаються в рядку підключення. Якщо є рядок `ConnectionStrings:MessagesDb` (його передає Aspire), він має пріоритет над `MongoDb:ConnectionString`. Стан підключення показує `GET /health` (команда `ping`).
+
+### Запуск
+
+Потрібно: .NET 10 SDK і MongoDB на `localhost:27017`. Скрипти Лаб. 1 запускати не обов'язково: сервіс сам створить індекси й початкові дані. Для суворої перевірки схеми спочатку виконайте `mongosh db\p3\collections.js`.
+
+```
+dotnet run --project Platform.AppHost
+```
+
+В Aspire Dashboard з'явиться ресурс `messages-api`, рядок `MessagesDb` лежить у `Platform.AppHost/appsettings.json`. Окремо сервіс запускається так:
+
+```
+dotnet run --project Services/Messages/Messages.WebApi
+```
+
+Swagger: `http://localhost:5200/swagger`. Користувача в Development задають заголовком `X-User-Id` (кнопка Authorize у Swagger). Розмову 1 (`670000000000000000000c01`, обмін 2) бачать U2 і U3, розмову 2 (`670000000000000000000c02`, обмін 3) бачать U3 і U1. Готові запити є у `Services/Messages/Messages.WebApi/Messages.WebApi.http`.
+
+### Ендпоінти
+
+| Метод і шлях | Успіх | Помилки |
+|---|---|---|
+| `GET /api/conversations?swapStatus=&page=&pageSize=` | 200 | 400, 401 |
+| `GET /api/conversations/{id}` | 200 + ETag | 400, 404 |
+| `POST /api/conversations` | 201 + Location | 400, 409 (розмова для обміну вже є) |
+| `PUT /api/conversations/{id}/status` | 204 | 400, 404, 409 |
+| `POST /api/conversations/{id}/read` | 204 | 400, 404, 409 |
+| `DELETE /api/conversations/{id}` | 204 | 400, 404, 409 |
+| `GET /api/conversations/{id}/messages?search=&senderId=&page=&pageSize=` | 200 | 400, 404 |
+| `POST /api/conversations/{id}/messages/text` | 201 + Location | 400, 404, 409 |
+| `POST /api/conversations/{id}/messages/file` | 201 + Location | 400, 404, 409 |
+| `GET /api/messages/{id}` | 200 + ETag | 400, 404 |
+| `PUT /api/messages/{id}` | 204 | 400, 404, 409 |
+| `DELETE /api/messages/{id}` | 204 | 400, 404, 409 |
+| `GET /api/conversations/{id}/attachments?page=&pageSize=` | 200 | 400, 404 |
+| `POST /api/conversations/{id}/attachments` | 201 + Location | 400, 404 |
+| `GET /api/attachments/{id}` | 200 | 400, 404 |
+| `GET /health` | 200 | 503 |
+
+`Location` містить рядковий ObjectId, наприклад `/api/messages/6ade2d767e08d9f0aef773f0`.
+
+### Помилки
+
+`ApiExceptionHandler` (`IExceptionHandler` + `AddProblemDetails`) повертає ProblemDetails з `traceId`, для валідації `ValidationProblemDetails` з помилками по полях:
+
+| Виняток | Статус |
+|---|---|
+| `NotFoundException` | 404 |
+| `ValidationException` (FluentValidation) | 400 |
+| `DomainException` | 400 |
+| `ConflictException` (версія) | 409 |
+| `MongoWriteException` з DuplicateKey | 409 (у `detail` назва індексу) |
+| інший `MongoWriteException` | 400 |
+| `MongoConnectionException`, `TimeoutException` (сервер MongoDB недоступний) | 503 |
+| `UnauthorizedAccessException` | 401 |
+| інші | 500 (деталі лише в Development) |
+
+### Демонстрація
+
+```
+BASE=http://localhost:5200
+U1=3f2a9c10-6b1e-4d7a-9a51-0c8e5d2b7f01
+U2=7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02
+U3=b19e6a33-2c5d-47f8-8d14-9a0b3e6f5c03
+```
+
+Помилка валідації до виклику обробника (400, у лозі `rejected by validation, handler was not called`):
+
+```
+curl -i -X POST "$BASE/api/conversations" -H "X-User-Id: $U3" -H "Content-Type: application/json" \
+  -d '{"swapId":0,"initiatorId":"x","partnerId":"3f2a9c10-6b1e-4d7a-9a51-0c8e5d2b7f01"}'
+```
+
+Дублікат за унікальним індексом: перший запит створює розмову для обміну 10 (201 + Location), повторний дає 409 з назвою індексу `ux_conversations_swap`:
+
+```
+curl -i -X POST "$BASE/api/conversations" -H "X-User-Id: $U1" -H "Content-Type: application/json" \
+  -d '{"swapId":10,"initiatorId":"3f2a9c10-6b1e-4d7a-9a51-0c8e5d2b7f01","partnerId":"7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02"}'
+```
+
+Конфлікт версій: перше редагування з `If-Match: "0"` дає 204, повторне з тією самою версією 409:
+
+```
+curl -i -X PUT "$BASE/api/messages/670000000000000000000a01" -H "X-User-Id: $U2" -H 'If-Match: "0"' \
+  -H "Content-Type: application/json" -d '{"text":"Привіт! Коли зручно зустрітися?"}'
+curl -i -X PUT "$BASE/api/messages/670000000000000000000a01" -H "X-User-Id: $U2" -H 'If-Match: "0"' \
+  -H "Content-Type: application/json" -d '{"text":"Ще одна правка"}'
+```
+
+Асинхронна валідація з запитом до MongoDB (вкладення з іншої розмови, 400) і неіснуючий документ (404):
+
+```
+curl -i -X POST "$BASE/api/conversations/670000000000000000000c01/messages/file" -H "X-User-Id: $U3" \
+  -H "Content-Type: application/json" -d '{"attachmentIds":["670000000000000000000b02"]}'
+curl -i "$BASE/api/conversations/ffffffffffffffffffffffff" -H "X-User-Id: $U2"
+```
+
+Перевірка в mongosh: документи мають структуру з Лаб. 1 (camelCase, вкладені `participants`, `lastMessage`, `attachments`, без службових полів .NET), індекси створені:
+
+```
+use QPQ_Messages
+db.conversations.findOne()
+db.messages.find({ conversationId: ObjectId('670000000000000000000c01') })
+db.messages.getIndexes()
+```
+
