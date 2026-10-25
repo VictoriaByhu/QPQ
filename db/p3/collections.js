@@ -55,7 +55,8 @@ ensureCollection('conversations', {
                 }
             },
             createdAt: { bsonType: 'date' },
-            updatedAt: { bsonType: ['date', 'null'] }
+            updatedAt: { bsonType: ['date', 'null'] },
+            version: { bsonType: 'int', minimum: 0 }
         }
     }
 });
@@ -72,7 +73,8 @@ function messageVariant(type, extraRequired, extraProperties) {
             type: { enum: [type] },
             createdAt: { bsonType: 'date' },
             isDeleted: { bsonType: 'bool' },
-            deletedAt: { bsonType: ['date', 'null'] }
+            deletedAt: { bsonType: ['date', 'null'] },
+            version: { bsonType: 'int', minimum: 0 }
         }, extraProperties)
     };
 }
