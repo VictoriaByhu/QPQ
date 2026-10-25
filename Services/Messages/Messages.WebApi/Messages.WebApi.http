@@ -1,0 +1,105 @@
+@host = http://localhost:5200
+@u1 = 3f2a9c10-6b1e-4d7a-9a51-0c8e5d2b7f01
+@u2 = 7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02
+@u3 = b19e6a33-2c5d-47f8-8d14-9a0b3e6f5c03
+@conv1 = 670000000000000000000c01
+@conv2 = 670000000000000000000c02
+
+###
+GET {{host}}/api/conversations
+X-User-Id: {{u2}}
+
+###
+GET {{host}}/api/conversations?swapStatus=Completed&page=1&pageSize=10
+X-User-Id: {{u3}}
+
+###
+GET {{host}}/api/conversations/{{conv1}}
+X-User-Id: {{u2}}
+
+###
+GET {{host}}/api/conversations/{{conv1}}/messages?page=1&pageSize=20
+X-User-Id: {{u2}}
+
+###
+GET {{host}}/api/conversations/{{conv1}}/messages?search=четвер
+X-User-Id: {{u3}}
+
+###
+GET {{host}}/api/conversations/{{conv2}}/attachments
+X-User-Id: {{u1}}
+
+###
+POST {{host}}/api/conversations
+X-User-Id: {{u1}}
+Content-Type: application/json
+
+{
+  "swapId": 10,
+  "initiatorId": "3f2a9c10-6b1e-4d7a-9a51-0c8e5d2b7f01",
+  "partnerId": "7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02"
+}
+
+###
+POST {{host}}/api/conversations
+X-User-Id: {{u3}}
+Content-Type: application/json
+
+{
+  "swapId": 0,
+  "initiatorId": "not-a-guid",
+  "partnerId": "3f2a9c10-6b1e-4d7a-9a51-0c8e5d2b7f01"
+}
+
+###
+POST {{host}}/api/conversations/{{conv1}}/messages/text
+X-User-Id: {{u2}}
+Content-Type: application/json
+
+{
+  "text": "O'Brien: тоді до четверга!"
+}
+
+###
+POST {{host}}/api/conversations/{{conv1}}/attachments
+X-User-Id: {{u3}}
+Content-Type: application/json
+
+{
+  "fileName": "csharp-notes.pdf",
+  "url": "https://files.example.com/swaps/2/csharp-notes.pdf",
+  "contentType": "application/pdf",
+  "sizeBytes": 20480
+}
+
+###
+POST {{host}}/api/conversations/{{conv1}}/messages/file
+X-User-Id: {{u3}}
+Content-Type: application/json
+
+{
+  "caption": "Чужий файл",
+  "attachmentIds": ["670000000000000000000b02"]
+}
+
+###
+PUT {{host}}/api/messages/670000000000000000000a01
+X-User-Id: {{u2}}
+If-Match: "0"
+Content-Type: application/json
+
+{
+  "text": "Привіт! Коли тобі зручно зустрітися?"
+}
+
+###
+DELETE {{host}}/api/messages/670000000000000000000a02
+X-User-Id: {{u3}}
+
+###
+POST {{host}}/api/conversations/{{conv1}}/read
+X-User-Id: {{u3}}
+
+###
+GET {{host}}/api/conversations/ffffffffffffffffffffffff
+X-User-Id: {{u2}}
