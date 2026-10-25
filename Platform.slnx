@@ -2,6 +2,7 @@
   <Folder Name="/Services/Messages/">
     <Project Path="Services/Messages/Messages.Application/Messages.Application.csproj" />
     <Project Path="Services/Messages/Messages.Domain/Messages.Domain.csproj" />
+    <Project Path="Services/Messages/Messages.Infrastructure/Messages.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/Services/Sessions/">
     <Project Path="Services/Sessions/Sessions.Api/Sessions.Api.csproj" />

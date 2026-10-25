@@ -1,0 +1,22 @@
+[
+  {
+    "_id": { "$oid": "670000000000000000000b01" },
+    "conversationId": { "$oid": "670000000000000000000c01" },
+    "uploadedBy": "7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02",
+    "fileName": "english-lesson-plan.pdf",
+    "url": "https://files.example.com/swaps/2/english-lesson-plan.pdf",
+    "contentType": "application/pdf",
+    "sizeBytes": 184320,
+    "uploadedAt": { "$date": "2026-10-02T10:29:00Z" }
+  },
+  {
+    "_id": { "$oid": "670000000000000000000b02" },
+    "conversationId": { "$oid": "670000000000000000000c02" },
+    "uploadedBy": "b19e6a33-2c5d-47f8-8d14-9a0b3e6f5c03",
+    "fileName": "mockup.png",
+    "url": "https://files.example.com/swaps/3/mockup.png",
+    "contentType": "image/png",
+    "sizeBytes": 524288,
+    "uploadedAt": { "$date": "2026-09-28T10:59:00Z" }
+  }
+]

@@ -1,0 +1,36 @@
+[
+  {
+    "_id": { "$oid": "670000000000000000000c01" },
+    "swapId": 2,
+    "swapStatus": "Accepted",
+    "participants": [
+      { "userId": "7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02", "role": "Initiator", "lastReadAt": { "$date": "2026-10-02T10:35:00Z" } },
+      { "userId": "b19e6a33-2c5d-47f8-8d14-9a0b3e6f5c03", "role": "Partner", "lastReadAt": { "$date": "2026-10-02T10:40:00Z" } }
+    ],
+    "lastMessage": {
+      "messageId": { "$oid": "670000000000000000000a03" },
+      "senderId": "7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02",
+      "preview": "Чудово! Ось план першого заняття з англійської.",
+      "sentAt": { "$date": "2026-10-02T10:30:00Z" }
+    },
+    "createdAt": { "$date": "2026-10-02T09:00:00Z" },
+    "updatedAt": null
+  },
+  {
+    "_id": { "$oid": "670000000000000000000c02" },
+    "swapId": 3,
+    "swapStatus": "Completed",
+    "participants": [
+      { "userId": "b19e6a33-2c5d-47f8-8d14-9a0b3e6f5c03", "role": "Initiator", "lastReadAt": { "$date": "2026-10-05T21:35:00Z" } },
+      { "userId": "3f2a9c10-6b1e-4d7a-9a51-0c8e5d2b7f01", "role": "Partner", "lastReadAt": null }
+    ],
+    "lastMessage": {
+      "messageId": { "$oid": "670000000000000000000a06" },
+      "senderId": "b19e6a33-2c5d-47f8-8d14-9a0b3e6f5c03",
+      "preview": "Дякую за обмін, все було корисно!",
+      "sentAt": { "$date": "2026-10-05T21:30:00Z" }
+    },
+    "createdAt": { "$date": "2026-09-28T10:00:00Z" },
+    "updatedAt": { "$date": "2026-10-05T21:00:00Z" }
+  }
+]

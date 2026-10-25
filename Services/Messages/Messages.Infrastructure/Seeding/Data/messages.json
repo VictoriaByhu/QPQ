@@ -1,0 +1,101 @@
+[
+  {
+    "_id": { "$oid": "670000000000000000000a07" },
+    "conversationId": { "$oid": "670000000000000000000c01" },
+    "senderId": "b19e6a33-2c5d-47f8-8d14-9a0b3e6f5c03",
+    "type": "system",
+    "event": "SwapAccepted",
+    "details": { "swapId": 2 },
+    "createdAt": { "$date": "2026-10-02T09:00:00Z" },
+    "isDeleted": false,
+    "deletedAt": null
+  },
+  {
+    "_id": { "$oid": "670000000000000000000a01" },
+    "conversationId": { "$oid": "670000000000000000000c01" },
+    "senderId": "7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02",
+    "type": "text",
+    "text": "Привіт! Коли тобі зручно зустрітися для обміну?",
+    "editedAt": null,
+    "createdAt": { "$date": "2026-10-02T10:00:00Z" },
+    "isDeleted": false,
+    "deletedAt": null
+  },
+  {
+    "_id": { "$oid": "670000000000000000000a02" },
+    "conversationId": { "$oid": "670000000000000000000c01" },
+    "senderId": "b19e6a33-2c5d-47f8-8d14-9a0b3e6f5c03",
+    "type": "text",
+    "text": "Привіт! Мені підходить четвер ввечері, 22 жовтня.",
+    "editedAt": null,
+    "createdAt": { "$date": "2026-10-02T10:12:00Z" },
+    "isDeleted": false,
+    "deletedAt": null
+  },
+  {
+    "_id": { "$oid": "670000000000000000000a03" },
+    "conversationId": { "$oid": "670000000000000000000c01" },
+    "senderId": "7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02",
+    "type": "file",
+    "caption": "Чудово! Ось план першого заняття з англійської.",
+    "attachments": [ { "attachmentId": { "$oid": "670000000000000000000b01" }, "fileName": "english-lesson-plan.pdf" } ],
+    "createdAt": { "$date": "2026-10-02T10:30:00Z" },
+    "isDeleted": false,
+    "deletedAt": null
+  },
+  {
+    "_id": { "$oid": "670000000000000000000a08" },
+    "conversationId": { "$oid": "670000000000000000000c02" },
+    "senderId": "3f2a9c10-6b1e-4d7a-9a51-0c8e5d2b7f01",
+    "type": "system",
+    "event": "SwapAccepted",
+    "details": { "swapId": 3 },
+    "createdAt": { "$date": "2026-09-28T10:00:00Z" },
+    "isDeleted": false,
+    "deletedAt": null
+  },
+  {
+    "_id": { "$oid": "670000000000000000000a04" },
+    "conversationId": { "$oid": "670000000000000000000c02" },
+    "senderId": "b19e6a33-2c5d-47f8-8d14-9a0b3e6f5c03",
+    "type": "file",
+    "caption": "Надсилаю макет у Figma, подивись, будь ласка.",
+    "attachments": [ { "attachmentId": { "$oid": "670000000000000000000b02" }, "fileName": "mockup.png" } ],
+    "createdAt": { "$date": "2026-09-28T11:00:00Z" },
+    "isDeleted": false,
+    "deletedAt": null
+  },
+  {
+    "_id": { "$oid": "670000000000000000000a05" },
+    "conversationId": { "$oid": "670000000000000000000c02" },
+    "senderId": "3f2a9c10-6b1e-4d7a-9a51-0c8e5d2b7f01",
+    "type": "text",
+    "text": "Дякую, виглядає чудово! Готовий до консультації з C#.",
+    "editedAt": { "$date": "2026-09-28T11:25:00Z" },
+    "createdAt": { "$date": "2026-09-28T11:20:00Z" },
+    "isDeleted": false,
+    "deletedAt": null
+  },
+  {
+    "_id": { "$oid": "670000000000000000000a09" },
+    "conversationId": { "$oid": "670000000000000000000c02" },
+    "senderId": "b19e6a33-2c5d-47f8-8d14-9a0b3e6f5c03",
+    "type": "system",
+    "event": "SwapCompleted",
+    "details": { "swapId": 3 },
+    "createdAt": { "$date": "2026-10-05T21:00:00Z" },
+    "isDeleted": false,
+    "deletedAt": null
+  },
+  {
+    "_id": { "$oid": "670000000000000000000a06" },
+    "conversationId": { "$oid": "670000000000000000000c02" },
+    "senderId": "b19e6a33-2c5d-47f8-8d14-9a0b3e6f5c03",
+    "type": "text",
+    "text": "Дякую за обмін, все було корисно!",
+    "editedAt": null,
+    "createdAt": { "$date": "2026-10-05T21:30:00Z" },
+    "isDeleted": false,
+    "deletedAt": null
+  }
+]
