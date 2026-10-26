@@ -1,5 +1,9 @@
 <Solution>
 	<Folder Name="/docs/" />
 	<Project Path="SwapService/SwapService.csproj" />
+	<Project Path="QPQ.Reviews.Application/QPQ.Reviews.Application.csproj" />
+	<Project Path="QPQ.Reviews.Domain/QPQ.Reviews.Domain.csproj" />
+	<Project Path="QPQ.Reviews.Infrastructure/QPQ.Reviews.Infrastructure.csproj" />
+	<Project Path="QPQ.Reviews.WebApi/QPQ.Reviews.WebApi.csproj" />
 	<Project Path="QPQ.ReviewService/QPQ.ReviewService.csproj" />
 </Solution>
