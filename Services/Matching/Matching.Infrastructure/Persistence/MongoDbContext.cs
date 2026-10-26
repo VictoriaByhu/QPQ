@@ -15,10 +15,10 @@ public static class CollectionNames
 /// <summary>Єдина точка доступу до бази QPQ_Matching. Клієнт MongoDB потокобезпечний, тому контекст — singleton.</summary>
 public class MongoDbContext
 {
-    public MongoDbContext(IOptions<MongoDbOptions> options)
+    public MongoDbContext(IMongoClient client, IOptions<MongoDbOptions> options)
     {
-        Client = new MongoClient(options.Value.ConnectionString);
-        Database = Client.GetDatabase(options.Value.DatabaseName);
+        Client = client;                                  // єдиний клієнт, яким керує DI
+        Database = client.GetDatabase(options.Value.DatabaseName);
     }
 
     public IMongoClient Client { get; }

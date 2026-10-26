@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 using Matching.Application.Common.Interfaces;
 using Matching.Domain.Interfaces;
@@ -28,8 +29,10 @@ public static class DependencyInjection
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
+        // Клієнт MongoDB потокобезпечний і створюється один раз; контекст отримує його через DI.
+        services.AddSingleton<IMongoClient>(sp =>
+            new MongoClient(sp.GetRequiredService<IOptions<MongoDbOptions>>().Value.ConnectionString));
         services.AddSingleton<MongoDbContext>();
-        services.AddSingleton<IMongoClient>(sp => sp.GetRequiredService<MongoDbContext>().Client);
 
         services.AddScoped<IUserSkillIndexRepository, UserSkillIndexRepository>();
         services.AddScoped<IMatchRepository, MatchRepository>();
