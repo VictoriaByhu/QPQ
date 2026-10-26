@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 using Matching.Infrastructure.Persistence;
@@ -5,14 +6,26 @@ using Matching.Infrastructure.Persistence;
 namespace Matching.Tests.Infrastructure;
 
 /// <summary>
-/// Де взяти MongoDB для інтеграційних тестів: змінна оточення QPQ_TEST_MONGO
-/// (наприклад, mongodb://localhost:27018) або mongodb://localhost:27017 за замовчуванням.
-/// Якщо сервер недоступний, тести з [MongoFact] пропускаються з поясненням.
+/// Де взяти MongoDB для інтеграційних тестів (за пріоритетом): змінна оточення QPQ_TEST_MONGO,
+/// User Secrets сервісу (MongoDb:ConnectionString, той самий, що використовує Matching.WebApi у Development),
+/// інакше mongodb://localhost:27017. Якщо сервер недоступний, тести з [MongoFact] пропускаються з поясненням.
+/// Кожен тест створює власну базу й видаляє її наприкінці, тому спільний сервер безпечний.
 /// </summary>
 public static class MongoAvailability
 {
-    public static string Uri { get; } =
-        Environment.GetEnvironmentVariable("QPQ_TEST_MONGO") is { Length: > 0 } uri ? uri : "mongodb://localhost:27017";
+    private const string WebApiUserSecretsId = "5e8f1b3a-7c2d-4a96-b0e4-9d1c6a3f8b27";
+
+    public static string Uri { get; } = Resolve();
+
+    private static string Resolve()
+    {
+        if (Environment.GetEnvironmentVariable("QPQ_TEST_MONGO") is { Length: > 0 } fromEnv) return fromEnv;
+
+        var secrets = new ConfigurationBuilder().AddUserSecrets(WebApiUserSecretsId).Build();
+        return secrets["MongoDb:ConnectionString"] is { Length: > 0 } fromSecrets
+            ? fromSecrets
+            : "mongodb://localhost:27017";
+    }
 
     public static bool IsReachable { get; } = Ping();
 
@@ -38,7 +51,7 @@ public sealed class MongoFactAttribute : FactAttribute
     public MongoFactAttribute()
     {
         if (!MongoAvailability.IsReachable)
-            Skip = $"MongoDB is not reachable at {MongoAvailability.Uri}. Start it (see Services/Matching/README.md) or set QPQ_TEST_MONGO.";
+            Skip = $"MongoDB is not reachable. Start it (see Services/Matching/README.md) or set QPQ_TEST_MONGO.";
     }
 }
 

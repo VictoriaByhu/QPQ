@@ -127,8 +127,13 @@ Docker-образ: `docker build -f Matching.WebApi/Dockerfile -t qpq-matching-a
 ## Тести
 
 ```bash
-# інтеграційним тестам потрібен MongoDB; адреса береться зі змінної QPQ_TEST_MONGO (типово mongodb://localhost:27017)
-QPQ_TEST_MONGO=mongodb://localhost:27017 dotnet test Services/Matching/Matching.Tests
+# спільний сервер: рядок підключення лежить у User Secrets (пароль не потрапляє в git)
+dotnet user-secrets set "MongoDb:ConnectionString" \
+  "mongodb://<login>:<password>@<host>:<port>/?authSource=admin&serverSelectionTimeoutMS=5000" \
+  --project Services/Matching/Matching.WebApi
+
+dotnet run  --project Services/Matching/Matching.WebApi     # у Development бере секрет замість localhost
+dotnet test Services/Matching/Matching.Tests                # теж бере секрет
 ```
 
 Без доступного MongoDB інтеграційні й API-тести пропускаються з поясненням, модульні виконуються завжди. Покрито: інваріанти домену (Rating/Level = 10 кидає `DomainException` без БД), Value Objects, статуси пар, правила підбору, `ValidationBehavior` (обробник не викликається), асинхронний валідатор, конфлікт версій, BSON-мапінг (camelCase, приватні поля, незмінні VO), унікальні індекси, ідемпотентний сідінг, агрегацію `skillStats`, пагінацію в MongoDB, коди відповідей API.
