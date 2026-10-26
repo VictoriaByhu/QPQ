@@ -76,7 +76,7 @@ public sealed class MongoFixture : IDisposable
 
     public string ConnectionString => MongoAvailability.Uri;
 
-    public MongoDbContext NewContext() => new(Options.Create(new MongoDbOptions
+    public MongoDbContext NewContext() => new(new MongoClient(ConnectionString), Options.Create(new MongoDbOptions
     {
         ConnectionString = ConnectionString,
         DatabaseName = NewDatabaseName("t")
