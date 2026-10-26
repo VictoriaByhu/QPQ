@@ -174,6 +174,7 @@ database.userSkillIndex.createIndex(
     { name: 'ix_userSkillIndex_skill_type_active', partialFilterExpression: { status: 'Active' } }
 );
 database.userSkillIndex.createIndex({ userId: 1, status: 1 }, { name: 'ix_userSkillIndex_user_status' });
+database.userSkillIndex.createIndex({ skillName: 'text' }, { name: 'tx_userSkillIndex_skillName', default_language: 'none' });
 database.matches.createIndex(
     { 'offer.fromUserId': 1, 'offer.toUserId': 1, 'offer.skillId': 1 },
     { name: 'ux_matches_offer', unique: true }
