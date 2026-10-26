@@ -1,4 +1,6 @@
 using AutoMapper;
+using MongoDB.Bson;
+using Matching.Domain.ValueObjects;
 using Matching.Application.Common.Models;
 using Matching.Application.IndexEntries.Commands.CreateIndexEntry;
 using Matching.Application.IndexEntries.Commands.UpdateIndexEntry;
@@ -13,6 +15,16 @@ public sealed class MatchingProfile : Profile
 {
     public MatchingProfile()
     {
+        // ObjectId <-> string: у HTTP-контрактах ідентифікатори завжди рядки.
+        CreateMap<ObjectId, string>().ConvertUsing(id => id.ToString());
+        CreateMap<string, ObjectId>().ConvertUsing(s => ObjectId.Parse(s));
+
+        // Value Objects домену <-> моделі Application (VO створюються через конструктор, тож інваріанти діють).
+        CreateMap<LanguageItem, Language>().ConvertUsing(s => new Language(s.Code, s.Proficiency));
+        CreateMap<Language, LanguageItem>().ConvertUsing(s => new LanguageItem(s.Code, s.Proficiency));
+        CreateMap<AvailabilityItem, AvailabilitySlot>().ConvertUsing(s => new AvailabilitySlot(s.DayOfWeek, s.Start, s.End));
+        CreateMap<AvailabilitySlot, AvailabilityItem>().ConvertUsing(s => new AvailabilityItem(s.DayOfWeek, s.Start, s.End));
+
         CreateMap<LanguageRequest, LanguageItem>();
         CreateMap<AvailabilityRequest, AvailabilityItem>();
 
