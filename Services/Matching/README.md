@@ -127,14 +127,16 @@ Docker-образ: `docker build -f Matching.WebApi/Dockerfile -t qpq-matching-a
 ## Тести
 
 ```bash
-# спільний сервер: рядок підключення лежить у User Secrets (пароль не потрапляє в git)
-dotnet user-secrets set "MongoDb:ConnectionString" \
-  "mongodb://<login>:<password>@<host>:<port>/?authSource=admin&serverSelectionTimeoutMS=5000" \
-  --project Services/Matching/Matching.WebApi
+# для здачі — локальний MongoDB на комп'ютері (mongodb://localhost:27017)
+podman run -d --name qpq-mongo -p 27017:27017 mongo:7      # або docker run ...
 
-dotnet run  --project Services/Matching/Matching.WebApi     # у Development бере секрет замість localhost
-dotnet test Services/Matching/Matching.Tests                # теж бере секрет
+dotnet run  --project Services/Matching/Matching.WebApi     # Development: localhost:27017, сідінг увімкнено
+dotnet test Services/Matching/Matching.Tests                # теж localhost:27017
 ```
+
+Віддалений сервер потрібен лише для dev/prod-конфігурації й не використовується під час здачі. Якщо його все ж треба підключити, рядок підключення (з паролем) задається тільки через User Secrets і не потрапляє в git:
+`dotnet user-secrets set "MongoDb:ConnectionString" "<рядок>" --project Services/Matching/Matching.WebApi`;
+щоб повернутись на локальний сервер — `dotnet user-secrets remove "MongoDb:ConnectionString" --project Services/Matching/Matching.WebApi`.
 
 Без доступного MongoDB інтеграційні й API-тести пропускаються з поясненням, модульні виконуються завжди. Покрито: інваріанти домену (Rating/Level = 10 кидає `DomainException` без БД), Value Objects, статуси пар, правила підбору, `ValidationBehavior` (обробник не викликається), асинхронний валідатор, конфлікт версій, BSON-мапінг (camelCase, приватні поля, незмінні VO), унікальні індекси, ідемпотентний сідінг, агрегацію `skillStats`, пагінацію в MongoDB, коди відповідей API.
 
