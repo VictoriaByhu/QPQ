@@ -14,5 +14,12 @@
     <Project Path="Services/Catalog/Catalog.Domain/Catalog.Domain.csproj" />
     <Project Path="Services/Catalog/Catalog.Tests/Catalog.Tests.csproj" />
   </Folder>
+  <Folder Name="/Services/Matching/">
+    <Project Path="Services/Matching/Matching.Domain/Matching.Domain.csproj" />
+    <Project Path="Services/Matching/Matching.Application/Matching.Application.csproj" />
+    <Project Path="Services/Matching/Matching.Infrastructure/Matching.Infrastructure.csproj" />
+    <Project Path="Services/Matching/Matching.WebApi/Matching.WebApi.csproj" />
+    <Project Path="Services/Matching/Matching.Tests/Matching.Tests.csproj" />
+  </Folder>
   <Project Path="Platform.AppHost/Platform.AppHost.csproj" />
 </Solution>

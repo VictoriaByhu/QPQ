@@ -11,6 +11,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Services\UserSkills\UserSkills.Api\UserSkills.Api.csproj" />
     <ProjectReference Include="..\Services\Catalog\Catalog.Api\Catalog.Api.csproj" />
+    <ProjectReference Include="..\Services\Matching\Matching.WebApi\Matching.WebApi.csproj" />
   </ItemGroup>
 
 </Project>

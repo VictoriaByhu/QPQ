@@ -12,4 +12,10 @@ var catalogDb = builder.AddConnectionString("CatalogDb");
 builder.AddProject<Projects.Catalog_Api>("catalog-api")
     .WithReference(catalogDb);
 
+// Matching (Лаб. 04, MongoDB, Clean Architecture): ресурс MatchingDb передає рядок підключення MongoDB.
+var matchingDb = builder.AddConnectionString("MatchingDb");
+
+builder.AddProject<Projects.Matching_WebApi>("matching-api")
+    .WithReference(matchingDb);
+
 builder.Build().Run();
