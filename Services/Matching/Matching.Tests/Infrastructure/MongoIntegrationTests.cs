@@ -129,10 +129,11 @@ public class MongoIntegrationTests(MongoFixture mongo)
         Assert.Contains("ux_userSkillIndex_userSkillId", index);
         Assert.Contains("ix_userSkillIndex_skill_type_active", index);
         Assert.Contains("ix_userSkillIndex_user_status", index);
+        Assert.Contains("tx_userSkillIndex_skillName", index);
         Assert.Contains("ux_matches_offer", matches);
         Assert.Contains("ix_matches_user_status_score", matches);
         Assert.Contains("ttl_matches_expiresAt", matches);
-        Assert.Equal(4, index.Count);                                            // _id + 3
+        Assert.Equal(5, index.Count);                                            // _id + 4
         Assert.Equal(4, matches.Count);
     }
 
