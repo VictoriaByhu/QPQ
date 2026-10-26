@@ -1,5 +1,6 @@
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
+using MongoDB.Bson.Serialization.Conventions;
 using MongoDB.Bson.Serialization.Serializers;
 using Matching.Domain.Common;
 using Matching.Domain.Entities;
@@ -27,6 +28,12 @@ public static class MongoMappings
         lock (Gate)
         {
             if (_registered) return;
+
+            // Конвенція: усі доменні типи записуються в camelCase (як у документах Лаб. 01);
+            // явні SetElementName нижче лише фіксують імена приватних полів.
+            ConventionRegistry.Register("MatchingCamelCase",
+                new ConventionPack { new CamelCaseElementNameConvention() },
+                t => t.Namespace is not null && t.Namespace.StartsWith("Matching.Domain", StringComparison.Ordinal));
 
             BsonClassMap.RegisterClassMap<BaseEntity>(cm =>
             {
