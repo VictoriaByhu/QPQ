@@ -64,7 +64,10 @@ function indexVariant(type, extraProperties) {
                     }
                 }
             },
-            updatedAt: { bsonType: 'date' }
+            updatedAt: { bsonType: 'date' },
+            // Лаб. 4: службові поля BaseEntity (необов'язкові, щоб документи з seed-скрипта лишалися валідними).
+            createdAt: { bsonType: 'date' },
+            version: { bsonType: 'number', minimum: 0 }
         }, extraProperties)
     };
 }
@@ -118,7 +121,10 @@ function matchVariant(kind, extraRequired, extraProperties) {
                 items: { bsonType: 'string', minLength: 2, maxLength: 10 }
             },
             createdAt: { bsonType: 'date' },
-            expiresAt: { bsonType: 'date' }
+            expiresAt: { bsonType: 'date' },
+            // Лаб. 4: оптимістична конкурентність (version) і час останньої зміни статусу (updatedAt).
+            updatedAt: { bsonType: 'date' },
+            version: { bsonType: 'number', minimum: 0 }
         }, extraProperties)
     };
 }
