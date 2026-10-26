@@ -33,7 +33,7 @@ public static class MongoAvailability
 
     private static string Describe(Exception ex)
     {
-        // Кінцева причина (TLS, DNS, відмова з'єднання) лежить глибоко у HeartbeatException; пароль у текст не потрапляє.
+        // Кінцева причина (DNS, відмова з'єднання) лежить глибоко у HeartbeatException; пароль у текст не потрапляє.
         var text = ex.ToString();
         var marker = text.IndexOf("HeartbeatException", StringComparison.Ordinal);
         var tail = marker >= 0 ? text[marker..] : text;
