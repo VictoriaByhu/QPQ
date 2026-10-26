@@ -619,3 +619,7 @@ dotnet test Services/UserSkills/UserSkills.Tests
 ## Лаб. 03: Catalog.Api (EF Core)
 
 Сервіс Catalog піддомену Skills реалізовано на EF Core: Code First, Fluent API, міграції, Async Generic Repository + Unit of Work, DTO + AutoMapper, пагінація, фільтрація, сортування, FluentValidation, ProblemDetails, Serilog, Specification pattern. Код: `Services/Catalog/`, інструкція запуску й міграцій: [Services/Catalog/README.md](Services/Catalog/README.md), SQL-скрипт міграцій: [db/p2/catalog.ef-migrations.sql](db/p2/catalog.ef-migrations.sql).
+
+## Лаб. 04: Matching (Clean Architecture, CQRS, MediatR, MongoDB)
+
+Сервіс Matching піддомену Skills (Проєкт №3, база `QPQ_Matching`) переписано за шаблоном Clean Architecture: чотири проєкти з правильним напрямком залежностей, доменні сутності та Value Objects, команди й запити MediatR, наскрізна валідація через Pipeline Behaviors (FluentValidation), BSON-мапінг через `BsonClassMap`, оптимістична конкурентність (`version`, `ETag` / `If-Match`), централізована обробка помилок MongoDB, сідінг та індекси при старті. Код: `Services/Matching/`, схема шарів, запуск і чекліст перед здачею: [Services/Matching/README.md](Services/Matching/README.md).
