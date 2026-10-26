@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Services\UserSkills\UserSkills.Api\UserSkills.Api.csproj" />
+    <ProjectReference Include="..\Services\Catalog\Catalog.Api\Catalog.Api.csproj" />
   </ItemGroup>
 
 </Project>

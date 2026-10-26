@@ -7,5 +7,12 @@
     <Project Path="Services/UserSkills/UserSkills.Domain/UserSkills.Domain.csproj" />
     <Project Path="Services/UserSkills/UserSkills.Tests/UserSkills.Tests.csproj" />
   </Folder>
+  <Folder Name="/Services/Catalog/">
+    <Project Path="Services/Catalog/Catalog.Api/Catalog.Api.csproj" />
+    <Project Path="Services/Catalog/Catalog.Bll/Catalog.Bll.csproj" />
+    <Project Path="Services/Catalog/Catalog.Dal/Catalog.Dal.csproj" />
+    <Project Path="Services/Catalog/Catalog.Domain/Catalog.Domain.csproj" />
+    <Project Path="Services/Catalog/Catalog.Tests/Catalog.Tests.csproj" />
+  </Folder>
   <Project Path="Platform.AppHost/Platform.AppHost.csproj" />
 </Solution>
