@@ -613,3 +613,9 @@ curl -k https://localhost:7139/api/user-skills/999999 -H "X-User-Id: 11111111-11
 ```
 dotnet test Services/UserSkills/UserSkills.Tests
 ```
+
+---
+
+## Лаб. 03: Catalog.Api (EF Core)
+
+Сервіс Catalog піддомену Skills реалізовано на EF Core: Code First, Fluent API, міграції, Async Generic Repository + Unit of Work, DTO + AutoMapper, пагінація, фільтрація, сортування, FluentValidation, ProblemDetails, Serilog, Specification pattern. Код: `Services/Catalog/`, інструкція запуску й міграцій: [Services/Catalog/README.md](Services/Catalog/README.md), SQL-скрипт міграцій: [db/p2/catalog.ef-migrations.sql](db/p2/catalog.ef-migrations.sql).
