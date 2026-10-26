@@ -27,19 +27,31 @@ public static class MongoAvailability
             : "mongodb://localhost:27017";
     }
 
+    public static string? Failure { get; private set; }
+
     public static bool IsReachable { get; } = Ping();
+
+    private static string Describe(Exception ex)
+    {
+        // Кінцева причина (TLS, DNS, відмова з'єднання) лежить глибоко у HeartbeatException; пароль у текст не потрапляє.
+        var text = ex.ToString();
+        var marker = text.IndexOf("HeartbeatException", StringComparison.Ordinal);
+        var tail = marker >= 0 ? text[marker..] : text;
+        return string.Join(" | ", tail.Split('\n').Select(l => l.Trim()).Where(l => l.Contains("Exception")).Take(4));
+    }
 
     private static bool Ping()
     {
         try
         {
             var settings = MongoClientSettings.FromConnectionString(Uri);
-            settings.ServerSelectionTimeout = TimeSpan.FromSeconds(2);
+            settings.ServerSelectionTimeout = TimeSpan.FromSeconds(6);
             new MongoClient(settings).GetDatabase("admin").RunCommand<MongoDB.Bson.BsonDocument>(new MongoDB.Bson.BsonDocument("ping", 1));
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            Failure = Describe(ex);
             return false;
         }
     }
@@ -51,7 +63,7 @@ public sealed class MongoFactAttribute : FactAttribute
     public MongoFactAttribute()
     {
         if (!MongoAvailability.IsReachable)
-            Skip = $"MongoDB is not reachable. Start it (see Services/Matching/README.md) or set QPQ_TEST_MONGO.";
+            Skip = $"MongoDB is not reachable ({MongoAvailability.Failure}). Start it (see Services/Matching/README.md) or set QPQ_TEST_MONGO.";
     }
 }
 
