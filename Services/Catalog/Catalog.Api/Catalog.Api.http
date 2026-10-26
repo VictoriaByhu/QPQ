@@ -1,0 +1,85 @@
+@host = http://localhost:5242
+
+### Список навичок: сторінка 2 по 5, сортування за назвою
+GET {{host}}/api/skills?page=2&pageSize=5&sortBy=name&sortDir=asc
+
+### Пошук і фільтри (категорія, тег)
+GET {{host}}/api/skills?search=Гра&categoryId=3
+###
+GET {{host}}/api/skills?tag=.NET
+
+### Навичка за Id (Eager Loading: категорія, опис, рівні, теги)
+GET {{host}}/api/skills/1
+
+### Неіснуюча навичка -> 404 ProblemDetails
+GET {{host}}/api/skills/9999
+
+### Створити навичку (201 + Location)
+POST {{host}}/api/skills
+Content-Type: application/json
+
+{
+  "name": "Йога",
+  "slug": "yoga",
+  "categoryId": 3,
+  "description": "Асани, дихання, розтяжка",
+  "iconUrl": "https://cdn.example.com/icons/yoga.svg",
+  "tagIds": [2, 4]
+}
+
+### Повторне створення -> 409
+POST {{host}}/api/skills
+Content-Type: application/json
+
+{ "name": "Йога", "slug": "yoga", "categoryId": 3 }
+
+### Порожня назва -> 400 з помилками по полях
+POST {{host}}/api/skills
+Content-Type: application/json
+
+{ "name": "", "slug": "Bad Slug", "categoryId": 3 }
+
+### Оновити навичку (rowVersion береться з відповіді GET)
+PUT {{host}}/api/skills/1
+Content-Type: application/json
+
+{ "name": "Програмування C#", "slug": "csharp", "categoryId": 1, "description": "Оновлений опис" }
+
+### Назва рівня 5 для навички
+PUT {{host}}/api/skills/1/levels/5
+Content-Type: application/json
+
+{ "title": "Експерт", "description": "Проводить код-рев'ю та наставляє інших" }
+
+### Додати тег / прибрати тег
+POST {{host}}/api/skills/4/tags/6
+###
+DELETE {{host}}/api/skills/4/tags/6
+
+### M:N через проміжну сутність: навички з тегом, доданим після дати
+GET {{host}}/api/skills/by-tag?tagName=Мови&since=2026-01-01
+
+### М'яке видалення
+DELETE {{host}}/api/skills/7
+
+### Категорії
+GET {{host}}/api/categories?page=1&pageSize=10
+###
+# Explicit Loading: категорія з навичками (2 SQL-запити)
+GET {{host}}/api/categories/1
+###
+POST {{host}}/api/categories
+Content-Type: application/json
+
+{ "name": "Спорт", "slug": "sport", "sortOrder": 70 }
+###
+# Категорію з активними навичками видалити не можна -> 409
+DELETE {{host}}/api/categories/1
+
+### Теги
+GET {{host}}/api/tags
+###
+POST {{host}}/api/tags
+Content-Type: application/json
+
+{ "name": "Групові заняття" }
