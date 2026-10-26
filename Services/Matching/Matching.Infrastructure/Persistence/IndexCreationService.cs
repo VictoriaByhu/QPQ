@@ -41,7 +41,10 @@ public sealed class IndexCreationService(MongoDbContext context, ILogger<IndexCr
                 }),
             // усі записи користувача (видалення за UserDeleted, перегляд)
             new CreateIndexModel<BsonDocument>(new BsonDocument { { "userId", 1 }, { "status", 1 } },
-                new CreateIndexOptions { Name = "ix_userSkillIndex_user_status" })
+                new CreateIndexOptions { Name = "ix_userSkillIndex_user_status" }),
+            // повнотекстовий пошук за назвою навички
+            new CreateIndexModel<BsonDocument>(new BsonDocument("skillName", "text"),
+                new CreateIndexOptions { Name = "tx_userSkillIndex_skillName", DefaultLanguage = "none" })
         }, ct);
 
         await context.Raw(CollectionNames.Matches).Indexes.CreateManyAsync(new[]
