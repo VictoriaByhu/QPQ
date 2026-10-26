@@ -118,6 +118,7 @@ Docker-образ: `docker build -f Matching.WebApi/Dockerfile -t qpq-matching-a
 | `ux_userSkillIndex_userSkillId` (унікальний) | один документ на запис UserSkills |
 | `ix_userSkillIndex_skill_type_active` (частковий, `Active`) | пошук активних пропозицій і бажань за навичкою |
 | `ix_userSkillIndex_user_status` | усі записи користувача |
+| `tx_userSkillIndex_skillName` (текстовий) | повнотекстовий пошук за назвою навички |
 | `ux_matches_offer` (унікальний) | одна пара на «хто, кому, яку навичку» |
 | `ix_matches_user_status_score` | список пар користувача за оцінкою |
 | `ttl_matches_expiresAt` (TTL) | автоматичне видалення застарілих пар |
