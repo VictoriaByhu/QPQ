@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
+using MongoDB.Driver.Core.Extensions.DiagnosticSources;
 using Messages.Domain.Entities;
 
 namespace Messages.Infrastructure.Persistence;
@@ -13,7 +14,9 @@ public sealed class MongoDbContext
     public MongoDbContext(IOptions<MongoDbOptions> options)
     {
         var settings = options.Value;
-        var client = new MongoClient(settings.ConnectionString);
+        var clientSettings = MongoClientSettings.FromConnectionString(settings.ConnectionString);
+        clientSettings.ClusterConfigurator = cb => cb.Subscribe(new DiagnosticsActivityEventSubscriber());
+        var client = new MongoClient(clientSettings);
         Database = client.GetDatabase(settings.DatabaseName);
     }
 
