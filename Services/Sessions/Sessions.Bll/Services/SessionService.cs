@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using AutoMapper;
+using Microsoft.Extensions.Logging;
 using Sessions.Bll.Dtos;
 using Sessions.Bll.Specifications;
 using Sessions.Dal.Interfaces;
@@ -7,8 +9,10 @@ using Sessions.Domain.Models;
 
 namespace Sessions.Bll.Services;
 
-public sealed class SessionService(IUnitOfWork uow, IMapper mapper) : ISessionService
+public sealed class SessionService(IUnitOfWork uow, IMapper mapper, ILogger<SessionService> logger) : ISessionService
 {
+    private static readonly ActivitySource Source = new("Sessions.Api");
+
     public async Task<PagedResult<SessionListItemDto>> GetListAsync(
         Guid userId, SessionQueryDto query, CancellationToken ct = default)
     {
@@ -35,6 +39,10 @@ public sealed class SessionService(IUnitOfWork uow, IMapper mapper) : ISessionSe
 
     public async Task<SessionDto> CreateAsync(Guid userId, CreateSessionDto input, CancellationToken ct = default)
     {
+        using var activity = Source.StartActivity("CreateSession");
+        activity?.SetTag("swap.id", input.SwapId);
+        activity?.SetTag("user.id", userId);
+
         var swap = await uow.AcceptedSwaps.GetByIdAsync(input.SwapId, ct);
         if (swap is null || !swap.IsParticipant(userId))
             throw new NotFoundException($"Swap {input.SwapId} not found");
@@ -55,13 +63,22 @@ public sealed class SessionService(IUnitOfWork uow, IMapper mapper) : ISessionSe
         await uow.Sessions.AddAsync(session, ct);
         await uow.SaveChangesAsync(ct);
 
+        activity?.SetTag("session.id", session.Id);
+        logger.LogInformation("Session {SessionId} created for swap {SwapId} by {UserId} at {ScheduledAt} with status {Status}",
+            session.Id, session.SwapId, userId, session.ScheduledAt, session.Status);
+
         return await GetByIdAsync(userId, session.Id, ct);
     }
 
     public async Task<SessionDto> UpdateAsync(
         Guid userId, int sessionId, UpdateSessionDto input, CancellationToken ct = default)
     {
+        using var activity = Source.StartActivity("RescheduleSession");
+        activity?.SetTag("session.id", sessionId);
+        activity?.SetTag("user.id", userId);
+
         var session = await LoadParticipantSessionAsync(userId, sessionId, ct);
+        var oldScheduledAt = session.ScheduledAt;
         ApplyRowVersion(session, input.RowVersion);
         session.Swap.EnsureCanPlanSessions();
 
@@ -74,6 +91,10 @@ public sealed class SessionService(IUnitOfWork uow, IMapper mapper) : ISessionSe
         session.Reschedule(scheduledAt, input.DurationMinutes);
         session.ChangePlace(input.FormatId, input.Link, input.Location);
         await uow.SaveChangesAsync(ct);
+
+        activity?.SetTag("swap.id", session.SwapId);
+        logger.LogInformation("Session {SessionId} of swap {SwapId} rescheduled {OldScheduledAt} -> {NewScheduledAt} by {UserId}",
+            session.Id, session.SwapId, oldScheduledAt, session.ScheduledAt, userId);
 
         return mapper.Map<SessionDto>(session);
     }

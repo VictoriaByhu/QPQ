@@ -1,5 +1,7 @@
 using System.Data;
+using System.Diagnostics;
 using AutoMapper;
+using Microsoft.Extensions.Logging;
 using Swaps.Bll.Dtos;
 using Swaps.Dal.Interfaces;
 using Swaps.Domain.Constants;
@@ -8,10 +10,15 @@ using Swaps.Domain.Models;
 
 namespace Swaps.Bll.Services;
 
-public sealed class SwapService(IUnitOfWork uow, IMapper mapper) : ISwapService
+public sealed class SwapService(IUnitOfWork uow, IMapper mapper, ILogger<SwapService> logger) : ISwapService
 {
+    private static readonly ActivitySource Source = new("Swaps.Api");
+
     public async Task<SwapDto> CreateAsync(Guid userId, CreateSwapDto input, CancellationToken ct = default)
     {
+        using var activity = Source.StartActivity("CreateSwap");
+        activity?.SetTag("user.id", userId);
+
         if (input.PartnerId == Guid.Empty)
             throw new ValidationException("PartnerId must not be empty.");
         if (input.PartnerId == userId)
@@ -75,6 +82,10 @@ public sealed class SwapService(IUnitOfWork uow, IMapper mapper) : ISwapService
             await uow.RollbackAsync();
             throw;
         }
+
+        activity?.SetTag("swap.id", swapId);
+        activity?.SetTag("swap.status", SwapStatuses.Pending);
+        logger.LogInformation("Swap {SwapId} created by {UserId} with status {Status}", swapId, userId, SwapStatuses.Pending);
 
         return await GetByIdAsync(userId, swapId, ct);
     }
@@ -173,9 +184,17 @@ public sealed class SwapService(IUnitOfWork uow, IMapper mapper) : ISwapService
     private async Task ChangeStatusAsync(
         Guid userId, int swapId, string newStatus, ChangeSwapStatusDto? input, CancellationToken ct)
     {
+        using var activity = Source.StartActivity("ChangeSwapStatus");
+        activity?.SetTag("swap.id", swapId);
+        activity?.SetTag("user.id", userId);
+
         var swap = await LoadParticipantSwapAsync(userId, swapId, ct);
         var rowVersion = ParseRowVersion(input?.RowVersion) ?? swap.RowVersion;
         await uow.Swaps.ChangeStatusAsync(swapId, newStatus, userId, rowVersion, input?.Comment, ct);
+
+        activity?.SetTag("swap.status", newStatus);
+        logger.LogInformation("Swap {SwapId} status changed {OldStatus} -> {NewStatus} by {UserId}",
+            swapId, swap.Status, newStatus, userId);
     }
 
     private async Task<Swap> LoadParticipantSwapAsync(Guid userId, int swapId, CancellationToken ct)
