@@ -1,9 +1,10 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
 var swapsScript = string.Join(
-    Environment.NewLine + "GO" + Environment.NewLine,
+    Environment.NewLine,
     new[] { "schema.sql", "procedures.sql", "seed.sql" }
-        .Select(file => File.ReadAllText(Path.Combine(builder.AppHostDirectory, "..", "db", "p1", file))));
+        .Select(file => File.ReadAllText(Path.Combine(builder.AppHostDirectory, "..", "db", "p1", file)).TrimEnd())
+        .Select(sql => sql.EndsWith("GO", StringComparison.OrdinalIgnoreCase) ? sql : sql + Environment.NewLine + "GO"));
 
 var sqlPassword = builder.AddParameter("sql-password", secret: true);
 var sql = builder.AddSqlServer("sql", sqlPassword).WithDataVolume();
