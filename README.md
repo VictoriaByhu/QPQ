@@ -215,9 +215,9 @@ HTTP -> Swaps.Api -> Swaps.Bll -> Swaps.Dal -> SQL Server (QPQ_Swaps)
 
 ### Запуск через Aspire
 
-Потрібно: .NET 10 SDK та SQL Server LocalDB з базою `QPQ_Swaps`, розгорнутою за кроками розділу «Проєкт №1 (Swaps)». Docker для цього варіанта не потрібен, бо використовується існуюча база.
+Потрібно: .NET 10 SDK і Docker Desktop. Починаючи з Лаб. 05 AppHost сам піднімає контейнер SQL Server і створює базу `QPQ_Swaps` скриптами з `db/p1` (див. розділ «Лаб. 05 — запуск платформи»). Для запуску без Aspire потрібна LocalDB з базою, розгорнутою за кроками розділу «Проєкт №1 (Swaps)».
 
-1. Розгорніть базу p1 (`schema.sql`, `procedures.sql`, `seed.sql`).
+1. Задайте пароль SQL Server: `dotnet user-secrets set "Parameters:sql-password" "<пароль>" --project Platform.AppHost`.
 2. Запустіть AppHost однією командою:
 
 ```
@@ -227,7 +227,7 @@ dotnet run --project Platform.AppHost
 3. Відкрийте Aspire Dashboard за посиланням із консолі: ресурс `swaps-api` має статус Running.
 4. Візьміть URL API з Dashboard і відкрийте `<URL>/swagger`.
 
-Рядок підключення `SwapsDb` лежить в `Platform.AppHost/appsettings.json`, Aspire передає його в API через `WithReference`. Без Aspire сервіс запускається окремо (`dotnet run --project Services/Swaps/Swaps.Api`, Swagger на `http://localhost:5180/swagger`) і бере рядок з `Services/Swaps/Swaps.Api/appsettings.json`. Рядок можна перевизначити змінною оточення:
+Рядок підключення `SwapsDb` до бази в контейнері Aspire формує сам і передає в API через `WithReference`. Без Aspire сервіс запускається окремо (`dotnet run --project Services/Swaps/Swaps.Api`, Swagger на `http://localhost:5180/swagger`) і бере рядок з `Services/Swaps/Swaps.Api/appsettings.json`. Рядок можна перевизначити змінною оточення:
 
 ```
 ConnectionStrings__SwapsDb=Server=...;Database=QPQ_Swaps;...
@@ -499,13 +499,13 @@ Serilog налаштовано в `Services/Sessions/Sessions.Api/appsettings.js
 
 ### Запуск
 
-Потрібно: .NET 10 SDK і SQL Server LocalDB. Базу створювати не потрібно, її створять міграції.
+Потрібно: .NET 10 SDK і Docker Desktop (для запуску без Aspire — SQL Server LocalDB). Базу створювати не потрібно, її створять міграції.
 
 ```
 dotnet run --project Platform.AppHost
 ```
 
-В Aspire Dashboard з'явиться ресурс `sessions-api`. Рядок підключення `SessionsDb` лежить в `Platform.AppHost/appsettings.json`. Без Aspire сервіс запускається окремо:
+В Aspire Dashboard з'явиться ресурс `sessions-api`. Рядок підключення `SessionsDb` до бази в контейнері SQL Server Aspire передає через `WithReference`. Без Aspire сервіс запускається окремо:
 
 ```
 dotnet run --project Services/Sessions/Sessions.Api
@@ -717,7 +717,7 @@ GET розмови та повідомлення повертає версію �
 dotnet run --project Platform.AppHost
 ```
 
-В Aspire Dashboard з'явиться ресурс `messages-api`, рядок `MessagesDb` лежить у `Platform.AppHost/appsettings.json`. Окремо сервіс запускається так:
+В Aspire Dashboard з'явиться ресурс `messages-api`, рядок `MessagesDb` до бази в контейнері MongoDB Aspire передає через `WithReference`. Окремо сервіс запускається так:
 
 ```
 dotnet run --project Services/Messages/Messages.WebApi
