@@ -1,18 +1,35 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
-var swapsDb = builder.AddConnectionString("SwapsDb");
+var swapsScript = string.Join(
+    Environment.NewLine + "GO" + Environment.NewLine,
+    new[] { "schema.sql", "procedures.sql", "seed.sql" }
+        .Select(file => File.ReadAllText(Path.Combine(builder.AppHostDirectory, "..", "db", "p1", file))));
 
-builder.AddProject<Projects.Swaps_Api>("swaps-api")
-    .WithReference(swapsDb);
+var sqlPassword = builder.AddParameter("sql-password", secret: true);
+var sql = builder.AddSqlServer("sql", sqlPassword).WithDataVolume();
+var swapsDb = sql.AddDatabase("SwapsDb", "QPQ_Swaps").WithCreationScript(swapsScript);
+var sessionsDb = sql.AddDatabase("SessionsDb", "QPQ_SessionsEf");
 
-var sessionsDb = builder.AddConnectionString("SessionsDb");
+var mongo = builder.AddMongoDB("mongo").WithDataVolume();
+var messagesDb = mongo.AddDatabase("MessagesDb", "QPQ_Messages");
 
-builder.AddProject<Projects.Sessions_Api>("sessions-api")
-    .WithReference(sessionsDb);
+var swaps = builder.AddProject<Projects.Swaps_Api>("swaps-api")
+    .WithReference(swapsDb).WaitFor(swapsDb);
 
-var messagesDb = builder.AddConnectionString("MessagesDb");
+var sessions = builder.AddProject<Projects.Sessions_Api>("sessions-api")
+    .WithReference(sessionsDb).WaitFor(sessionsDb);
 
-builder.AddProject<Projects.Messages_WebApi>("messages-api")
-    .WithReference(messagesDb);
+var messages = builder.AddProject<Projects.Messages_WebApi>("messages-api")
+    .WithReference(messagesDb).WaitFor(messagesDb);
+
+var aggregator = builder.AddProject<Projects.Platform_Aggregator>("aggregator")
+    .WithReference(swaps).WithReference(sessions).WithReference(messages)
+    .WaitFor(swaps).WaitFor(sessions).WaitFor(messages);
+
+builder.AddProject<Projects.Platform_ApiGateway>("gateway")
+    .WithHttpEndpoint(port: 5000, name: "public")
+    .WithReference(swaps).WithReference(sessions).WithReference(messages)
+    .WithReference(aggregator)
+    .WaitFor(aggregator);
 
 builder.Build().Run();
