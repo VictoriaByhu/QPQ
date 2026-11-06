@@ -813,3 +813,87 @@ db.messages.find({ conversationId: ObjectId('670000000000000000000c01') })
 db.messages.getIndexes()
 ```
 
+
+## Лаб. 05 — запуск платформи
+
+Усі сервіси піддомену Swaps запускаються однією командою через .NET Aspire. Docker-контейнери з базами піднімає AppHost, тому LocalDB і ручне розгортання баз не потрібні.
+
+### Склад платформи
+
+| Ресурс | Проєкт | Призначення |
+|---|---|---|
+| `sql` | контейнер SQL Server | бази `QPQ_Swaps` (рядок `SwapsDb`) і `QPQ_SessionsEf` (рядок `SessionsDb`) |
+| `mongo` | контейнер MongoDB | база `QPQ_Messages` (рядок `MessagesDb`) |
+| `swaps-api` | `Services/Swaps/Swaps.Api` | обміни, Dapper |
+| `sessions-api` | `Services/Sessions/Sessions.Api` | сесії, EF Core |
+| `messages-api` | `Services/Messages/Messages.WebApi` | розмови й повідомлення, MongoDB |
+| `aggregator` | `Platform.Aggregator` | повна картка обміну |
+| `gateway` | `Platform.ApiGateway` | єдина точка входу (YARP), порт 5000 |
+
+`Platform.ServiceDefaults` підключається в кожен сервіс через `builder.AddServiceDefaults()` і дає Serilog (JSON у консоль), OpenTelemetry (логи, метрики, трасування з SQL і MongoDB spans), service discovery, resilience для HttpClient, `/health` і `/alive`, а також наскрізний `X-Correlation-Id`.
+
+База `QPQ_Swaps` створюється під час першого запуску скриптами `db/p1/schema.sql`, `procedures.sql` і `seed.sql`. AppHost читає їх з диска і передає в `WithCreationScript`, Aspire виконує їх пакетами за розділювачем `GO`. Sessions застосовує міграції EF Core і початкові дані при старті, Messages створює індекси та сідить дані сам. Дані зберігаються в Docker volume, повторний запуск їх не дублює.
+
+### Передумови
+
+- .NET 10 SDK;
+- запущений Docker Desktop.
+
+### Запуск
+
+Пароль адміністратора SQL Server задається один раз через user-secrets AppHost (не менше 8 символів, великі й малі літери, цифри):
+
+```
+dotnet user-secrets set "Parameters:sql-password" "<пароль>" --project Platform.AppHost
+dotnet run --project Platform.AppHost
+```
+
+У консолі з'явиться посилання на Aspire Dashboard. Усі ресурси мають перейти в стан Running. Gateway доступний на `http://localhost:5000`.
+
+### Маршрути Gateway
+
+| Шлях | Сервіс |
+|---|---|
+| `/api/aggregator/**` | aggregator |
+| `/api/swaps/**`, `/api/skills/**` | swaps-api |
+| `/api/sessions/**`, `/api/accepted-swaps/**` | sessions-api |
+| `/api/messages/**`, `/api/conversations/**`, `/api/attachments/**` | messages-api |
+
+### Приклади
+
+```bash
+U2=7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02
+curl -i http://localhost:5000/api/swaps/2 -H "X-User-Id: $U2"
+curl -i http://localhost:5000/api/sessions/1 -H "X-User-Id: $U2"
+curl -i http://localhost:5000/api/conversations -H "X-User-Id: $U2"
+curl -i http://localhost:5000/api/messages/<id> -H "X-User-Id: $U2"
+curl -i http://localhost:5000/api/aggregator/swaps/2/full -H "X-User-Id: $U2"
+```
+
+Кожна відповідь містить заголовок `X-Correlation-Id`. Його можна передати й у запиті (`-H "X-Correlation-Id: demo-1"`), тоді за цим значенням у Dashboard → Structured logs видно логи Gateway, Aggregator і всіх сервісів, що обробляли запит.
+
+### Повна картка обміну
+
+`GET /api/aggregator/swaps/{id}/full` повертає обмін зі swaps-api, а потім паралельно (`Task.WhenAll`) забирає сесії з sessions-api (`/api/accepted-swaps/{id}/sessions`) і повідомлення розмови цього обміну з messages-api (`/api/conversations` → `/api/conversations/{conversationId}/messages`). У сервіси передається `X-User-Id` учасника обміну. Якщо обміну немає або користувач не є його учасником, відповідь 404.
+
+```json
+{
+  "swap": { "id": 2, "status": "Accepted", "...": "..." },
+  "sessions": [ { "id": 1, "swapId": 2, "...": "..." } ],
+  "messages": [ { "id": "...", "type": "system", "...": "..." } ],
+  "warnings": []
+}
+```
+
+### Часткова відповідь
+
+1. У Dashboard зупиніть ресурс `messages-api` (кнопка Stop).
+2. Повторіть `curl -i http://localhost:5000/api/aggregator/swaps/2/full -H "X-User-Id: $U2"`.
+3. Відповідь лишається 200: `messages` порожній, а в `warnings` з'являється `"messages-api is unavailable"`. В Aggregator записується попередження в лог. Відповідь може затриматися до 30 секунд: стандартний resilience handler робить повторні спроби до загального тайм-ауту.
+4. Запустіть `messages-api` знову (Start).
+
+### Спостережуваність
+
+- Structured logs: у кожного запису є `ServiceName`, `CorrelationId`, `EnvironmentName`, `MachineName`, `ThreadId`, `TraceId`, `SpanId`.
+- Traces: агрегувальний запит видно як ланцюжок gateway → aggregator → swaps-api, далі паралельно sessions-api і messages-api зі spans SQL і MongoDB.
+- Бізнес-події пишуться окремими spans і логами: `CreateSwap`, `ChangeSwapStatus` (Swaps.Bll), `CreateSession`, `RescheduleSession` (Sessions.Bll), `SendTextMessage`, `SendFileMessage` (Messages.Application). Тексти повідомлень у логи не потрапляють.
