@@ -1,7 +1,7 @@
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
-using Serilog;
+using Platform.ServiceDefaults;
 using Sessions.Api.Middleware;
 using Sessions.Api.Services;
 using Sessions.Bll.Mapping;
@@ -11,13 +11,10 @@ using Sessions.Dal;
 using Sessions.Dal.Interfaces;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddServiceDefaults();
 
 var connectionString = builder.Configuration.GetConnectionString("SessionsDb")
     ?? throw new InvalidOperationException("Connection string 'SessionsDb' is missing");
-
-builder.Host.UseSerilog((ctx, cfg) => cfg
-    .ReadFrom.Configuration(ctx.Configuration)
-    .Enrich.FromLogContext());
 
 builder.Services.AddDbContext<SessionsDbContext>(options =>
 {
@@ -89,8 +86,8 @@ using (var scope = app.Services.CreateScope())
         await DbInitializer.SeedAsync(db);
 }
 
+app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<LogContextMiddleware>();
-app.UseSerilogRequestLogging();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 
@@ -101,5 +98,6 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapControllers();
+app.MapDefaultEndpoints();
 
 await app.RunAsync();

@@ -1,7 +1,6 @@
 using System.Reflection;
 using Microsoft.OpenApi.Models;
-using Serilog;
-using Serilog.Context;
+using Platform.ServiceDefaults;
 using Swaps.Api.Middleware;
 using Swaps.Api.Services;
 using Swaps.Bll.Mapping;
@@ -10,14 +9,10 @@ using Swaps.Dal;
 using Swaps.Dal.Interfaces;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddServiceDefaults();
 
 var connectionString = builder.Configuration.GetConnectionString("SwapsDb")
     ?? throw new InvalidOperationException("Connection string 'SwapsDb' is missing");
-
-builder.Host.UseSerilog((ctx, cfg) => cfg
-    .ReadFrom.Configuration(ctx.Configuration)
-    .Enrich.FromLogContext()
-    .WriteTo.Console());
 
 builder.Services.AddScoped<IUnitOfWork>(_ => new UnitOfWork(connectionString));
 builder.Services.AddScoped<ISwapService, SwapService>();
@@ -74,15 +69,7 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
-app.Use(async (context, next) =>
-{
-    using (LogContext.PushProperty("TraceId", context.TraceIdentifier))
-    {
-        await next();
-    }
-});
-
-app.UseSerilogRequestLogging();
+app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 
@@ -93,5 +80,6 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapControllers();
+app.MapDefaultEndpoints();
 
 app.Run();

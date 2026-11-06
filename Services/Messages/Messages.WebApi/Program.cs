@@ -1,16 +1,13 @@
 using System.Text.Json.Serialization;
 using Microsoft.OpenApi.Models;
-using Serilog;
+using Platform.ServiceDefaults;
 using Messages.Application;
 using Messages.Infrastructure;
 using Messages.WebApi.Middleware;
 using Messages.WebApi.Services;
 
 var builder = WebApplication.CreateBuilder(args);
-
-builder.Host.UseSerilog((ctx, cfg) => cfg
-    .ReadFrom.Configuration(ctx.Configuration)
-    .Enrich.FromLogContext());
+builder.AddServiceDefaults();
 
 builder.Services
     .AddApplication(builder.Configuration)
@@ -57,8 +54,8 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
+app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<LogContextMiddleware>();
-app.UseSerilogRequestLogging();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 
@@ -69,6 +66,6 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapControllers();
-app.MapHealthChecks("/health");
+app.MapDefaultEndpoints();
 
 await app.RunAsync();
