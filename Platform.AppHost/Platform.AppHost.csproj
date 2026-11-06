@@ -12,6 +12,13 @@
     <ProjectReference Include="..\Services\Messages\Messages.WebApi\Messages.WebApi.csproj" />
     <ProjectReference Include="..\Services\Sessions\Sessions.Api\Sessions.Api.csproj" />
     <ProjectReference Include="..\Services\Swaps\Swaps.Api\Swaps.Api.csproj" />
+    <ProjectReference Include="..\Platform.ApiGateway\Platform.ApiGateway.csproj" />
+    <ProjectReference Include="..\Platform.Aggregator\Platform.Aggregator.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.MongoDB" Version="13.0.0" />
+    <PackageReference Include="Aspire.Hosting.SqlServer" Version="13.0.0" />
   </ItemGroup>
 
 </Project>

@@ -1,4 +1,5 @@
 <Solution>
+  <Folder Name="/Services/" />
   <Folder Name="/Services/Messages/">
     <Project Path="Services/Messages/Messages.Application/Messages.Application.csproj" />
     <Project Path="Services/Messages/Messages.Domain/Messages.Domain.csproj" />
@@ -17,5 +18,8 @@
     <Project Path="Services/Swaps/Swaps.Dal/Swaps.Dal.csproj" />
     <Project Path="Services/Swaps/Swaps.Domain/Swaps.Domain.csproj" />
   </Folder>
+  <Project Path="Platform.Aggregator/Platform.Aggregator.csproj" />
+  <Project Path="Platform.ApiGateway/Platform.ApiGateway.csproj" />
   <Project Path="Platform.AppHost/Platform.AppHost.csproj" />
+  <Project Path="Platform.ServiceDefaults/Platform.ServiceDefaults.csproj" />
 </Solution>

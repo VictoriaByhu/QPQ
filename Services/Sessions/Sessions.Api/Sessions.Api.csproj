@@ -19,6 +19,7 @@
     <ProjectReference Include="..\Sessions.Bll\Sessions.Bll.csproj" />
     <ProjectReference Include="..\Sessions.Dal\Sessions.Dal.csproj" />
     <ProjectReference Include="..\Sessions.Domain\Sessions.Domain.csproj" />
+    <ProjectReference Include="..\..\..\Platform.ServiceDefaults\Platform.ServiceDefaults.csproj" />
   </ItemGroup>
 
 </Project>
