@@ -1,6 +1,10 @@
 <Solution>
 	<Folder Name="/docs/" />
 	<Project Path="SwapService/SwapService.csproj" />
+	<Project Path="Platform.Aggregator/Platform.Aggregator.csproj" />
+	<Project Path="Platform.ApiGateway/Platform.ApiGateway.csproj" />
+	<Project Path="Platform.AppHost/Platform.AppHost.csproj" />
+	<Project Path="Platform.ServiceDefaults/Platform.ServiceDefaults.csproj" />
 	<Project Path="QPQ.Reviews.Application/QPQ.Reviews.Application.csproj" />
 	<Project Path="QPQ.Reviews.Domain/QPQ.Reviews.Domain.csproj" />
 	<Project Path="QPQ.Reviews.Infrastructure/QPQ.Reviews.Infrastructure.csproj" />

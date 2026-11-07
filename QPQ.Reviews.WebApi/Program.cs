@@ -4,7 +4,9 @@ using Microsoft.Extensions.Hosting;
 using QPQ.Reviews.Application;
 using QPQ.Reviews.Infrastructure;
 
+
 var builder = WebApplication.CreateBuilder(args);
+builder.AddMongoDBClient("ReviewsDb");
 
 // Реєстрація мапінгу MongoDB (має бути до ініціалізації бази даних)
 QPQ.Reviews.Infrastructure.Persistence.MongoMappings.Register();
