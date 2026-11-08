@@ -14,8 +14,11 @@ var sessionsDb = sql.AddDatabase("SessionsDb", "QPQ_SessionsEf");
 var mongo = builder.AddMongoDB("mongo").WithDataVolume();
 var messagesDb = mongo.AddDatabase("MessagesDb", "QPQ_Messages");
 
+var redis = builder.AddRedis("redis").WithDataVolume();
+
 var swaps = builder.AddProject<Projects.Swaps_Api>("swaps-api")
-    .WithReference(swapsDb).WaitFor(swapsDb);
+    .WithReference(swapsDb).WaitFor(swapsDb)
+    .WithReference(redis).WaitFor(redis);
 
 var sessions = builder.AddProject<Projects.Sessions_Api>("sessions-api")
     .WithReference(sessionsDb).WaitFor(sessionsDb);
@@ -25,6 +28,7 @@ var messages = builder.AddProject<Projects.Messages_WebApi>("messages-api")
 
 var aggregator = builder.AddProject<Projects.Platform_Aggregator>("aggregator")
     .WithReference(swaps).WithReference(sessions).WithReference(messages)
+    .WithReference(redis).WaitFor(redis)
     .WaitFor(swaps).WaitFor(sessions).WaitFor(messages);
 
 builder.AddProject<Projects.Platform_ApiGateway>("gateway")
