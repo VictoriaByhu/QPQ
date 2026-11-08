@@ -9,6 +9,8 @@ public interface IMessageQueries
 {
     Task<ConversationDto?> GetConversationAsync(string id, string userId, CancellationToken ct);
 
+    Task<ConversationDto?> GetConversationBySwapAsync(int swapId, string userId, CancellationToken ct);
+
     Task<PagedResult<ConversationDto>> GetConversationsAsync(
         string userId, string? swapStatus, int page, int pageSize, CancellationToken ct);
 

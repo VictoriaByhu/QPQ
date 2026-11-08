@@ -91,6 +91,16 @@ public sealed class MessageQueries(MongoDbContext context) : IMessageQueries
             .FirstOrDefaultAsync(ct);
     }
 
+    public async Task<ConversationDto?> GetConversationBySwapAsync(int swapId, string userId, CancellationToken ct)
+    {
+        var filter = Builders<Conversation>.Filter.Eq(c => c.SwapId, swapId)
+                     & ParticipantFilter(userId);
+        return await _conversations.Aggregate()
+            .Match(filter)
+            .Project<ConversationDto>(ConversationProjection)
+            .FirstOrDefaultAsync(ct);
+    }
+
     public async Task<PagedResult<ConversationDto>> GetConversationsAsync(
         string userId, string? swapStatus, int page, int pageSize, CancellationToken ct)
     {
