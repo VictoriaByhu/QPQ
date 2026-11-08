@@ -3,6 +3,7 @@ using Microsoft.OpenApi.Models;
 using Platform.ServiceDefaults;
 using Swaps.Api.Middleware;
 using Swaps.Api.Services;
+using Swaps.Bll.Caching;
 using Swaps.Bll.Mapping;
 using Swaps.Bll.Services;
 using Swaps.Dal;
@@ -10,9 +11,14 @@ using Swaps.Dal.Interfaces;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
+builder.AddRedisDistributedCache("redis");
 
 var connectionString = builder.Configuration.GetConnectionString("SwapsDb")
     ?? throw new InvalidOperationException("Connection string 'SwapsDb' is missing");
+
+builder.Services.AddMemoryCache(o => o.SizeLimit = 10_000);
+builder.Services.AddSingleton<CacheMetrics>();
+builder.Services.AddSingleton<TwoLevelCache>();
 
 builder.Services.AddScoped<IUnitOfWork>(_ => new UnitOfWork(connectionString));
 builder.Services.AddScoped<ISwapService, SwapService>();
