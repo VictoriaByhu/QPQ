@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Messages.Grpc;
+using Platform.Aggregator.Caching;
 using Platform.Aggregator.Clients;
 using Platform.Aggregator.Services;
 using Platform.ServiceDefaults;
@@ -9,6 +10,10 @@ using Swaps.Grpc;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
+builder.AddRedisDistributedCache("redis");
+
+builder.Services.AddSingleton<AggregatorCacheMetrics>();
+builder.Services.AddSingleton<FullSwapCache>();
 
 builder.Services.AddTransient<UserIdForwardingHandler>();
 

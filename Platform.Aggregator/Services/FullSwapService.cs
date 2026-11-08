@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Grpc.Core;
 using Messages.Grpc;
+using Platform.Aggregator.Caching;
 using Platform.Aggregator.Clients;
 using Platform.Aggregator.Dtos;
 using Polly.CircuitBreaker;
@@ -14,6 +15,7 @@ public sealed class FullSwapService(
     SwapsService.SwapsServiceClient swaps,
     SessionsService.SessionsServiceClient sessions,
     MessagesService.MessagesServiceClient messages,
+    FullSwapCache cache,
     IHttpContextAccessor httpContextAccessor,
     ILogger<FullSwapService> logger)
 {
@@ -24,6 +26,11 @@ public sealed class FullSwapService(
     {
         using var activity = Source.StartActivity("AggregateFullSwap");
         activity?.SetTag("swap.id", swapId);
+
+        // The response depends on the caller, so entries are per user; a request without a valid user is never cached.
+        var callerId = GetCallerId();
+        if (callerId is { } cachedFor && await cache.TryGetAsync(swapId, cachedFor, ct) is { } cached)
+            return cached;
 
         var swap = await GetSwapAsync(swapId, ct);
         if (swap is null)
@@ -48,8 +55,19 @@ public sealed class FullSwapService(
         logger.LogInformation("Aggregated swap {SwapId} for {UserId}: {SessionCount} sessions, {MessageCount} messages, {WarningCount} warnings",
             swapId, participantId, swapSessions.Count, swapMessages.Count, warnings.Count);
 
-        return new FullSwapDto(swap, swapSessions, swapMessages, warnings);
+        var result = new FullSwapDto(swap, swapSessions, swapMessages, warnings);
 
+        // A partial response must not outlive the outage that caused it.
+        if (callerId is { } userId && warnings.Count == 0)
+            await cache.SetAsync(swapId, userId, result, ct);
+
+        return result;
+    }
+
+    private Guid? GetCallerId()
+    {
+        var header = httpContextAccessor.HttpContext?.Request.Headers[UserIdForwardingHandler.HeaderName].FirstOrDefault();
+        return Guid.TryParse(header, out var userId) && userId != Guid.Empty ? userId : null;
     }
 
     private async Task<SwapDto?> GetSwapAsync(int swapId, CancellationToken ct)
