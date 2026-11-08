@@ -28,6 +28,8 @@ public static class Extensions
         "MongoDB.Driver.Core.Extensions.DiagnosticSources"
     ];
 
+    private static readonly string[] CacheMeters = ["Swaps.Cache", "Aggregator.Cache"];
+
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.ConfigureSerilog();
@@ -84,7 +86,8 @@ public static class Extensions
             {
                 metrics.AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
-                    .AddRuntimeInstrumentation();
+                    .AddRuntimeInstrumentation()
+                    .AddMeter(CacheMeters);
             })
             .WithTracing(tracing =>
             {
