@@ -1,19 +1,22 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Messages.Grpc;
 using Platform.Aggregator.Clients;
 using Platform.Aggregator.Services;
 using Platform.ServiceDefaults;
+using Sessions.Grpc;
+using Swaps.Grpc;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 
 builder.Services.AddTransient<UserIdForwardingHandler>();
 
-builder.Services.AddHttpClient<SwapsClient>(c => c.BaseAddress = new("https+http://swaps-api"))
+builder.Services.AddGrpcClient<SwapsService.SwapsServiceClient>(o => o.Address = new Uri("https://swaps-api"))
     .AddHttpMessageHandler<UserIdForwardingHandler>();
-builder.Services.AddHttpClient<SessionsClient>(c => c.BaseAddress = new("https+http://sessions-api"))
+builder.Services.AddGrpcClient<SessionsService.SessionsServiceClient>(o => o.Address = new Uri("https://sessions-api"))
     .AddHttpMessageHandler<UserIdForwardingHandler>();
-builder.Services.AddHttpClient<MessagesClient>(c => c.BaseAddress = new("https+http://messages-api"))
+builder.Services.AddGrpcClient<MessagesService.MessagesServiceClient>(o => o.Address = new Uri("https://messages-api"))
     .AddHttpMessageHandler<UserIdForwardingHandler>();
 
 builder.Services.AddScoped<FullSwapService>();

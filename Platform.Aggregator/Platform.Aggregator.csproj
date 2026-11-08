@@ -18,6 +18,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Protobuf Include="..\Services\Swaps\Swaps.Api\Protos\swaps.proto" GrpcServices="Client" />
+    <Protobuf Include="..\Services\Sessions\Sessions.Api\Protos\sessions.proto" GrpcServices="Client" />
+    <Protobuf Include="..\Services\Messages\Messages.WebApi\Protos\messages.proto" GrpcServices="Client" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Platform.ServiceDefaults\Platform.ServiceDefaults.csproj" />
   </ItemGroup>
 

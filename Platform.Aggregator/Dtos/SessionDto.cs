@@ -7,5 +7,3 @@ public record SessionDto(
     DateTime ScheduledAt,
     int DurationMinutes,
     string Status);
-
-public record AcceptedSwapSessionsDto(int SwapId, IReadOnlyList<SessionDto> Sessions);

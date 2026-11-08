@@ -13,8 +13,6 @@ public record MessageDto(
 
 public record ConversationDto(string Id, int SwapId, string SwapStatus);
 
-public record PagedResult<T>(IReadOnlyList<T> Items, long TotalCount, int Page, int PageSize, int TotalPages);
-
 public record ConversationMessagesDto(ConversationDto? Conversation, IReadOnlyList<MessageDto> Messages)
 {
     public static ConversationMessagesDto Empty { get; } = new(null, []);
