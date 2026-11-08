@@ -9,6 +9,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Aspire.StackExchange.Redis.DistributedCaching" Version="13.0.0" />
+    <PackageReference Include="Grpc.AspNetCore" Version="2.85.0" />
     <PackageReference Include="Serilog.AspNetCore" Version="9.*" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="9.*" />
   </ItemGroup>
