@@ -845,10 +845,11 @@ db.messages.getIndexes()
 
 ```
 dotnet user-secrets set "Parameters:sql-password" "<пароль>" --project Platform.AppHost
-dotnet run --project Platform.AppHost
+dotnet dev-certs https --trust
+dotnet run --project Platform.AppHost --launch-profile https
 ```
 
-У консолі з'явиться посилання на Aspire Dashboard. Усі ресурси мають перейти в стан Running. Gateway доступний на `http://localhost:5000`.
+Профіль `https` обов'язковий: gRPC між Aggregator і сервісами працює лише через HTTPS-ендпоінти. У консолі з'явиться посилання на Aspire Dashboard. Усі ресурси мають перейти в стан Running. Gateway доступний на `http://localhost:5000`.
 
 ### Маршрути Gateway
 
@@ -874,7 +875,7 @@ curl -i http://localhost:5000/api/aggregator/swaps/2/full -H "X-User-Id: $U2"
 
 ### Повна картка обміну
 
-`GET /api/aggregator/swaps/{id}/full` повертає обмін зі swaps-api, а потім паралельно (`Task.WhenAll`) забирає сесії з sessions-api (`/api/accepted-swaps/{id}/sessions`) і повідомлення розмови цього обміну з messages-api (`/api/conversations` → `/api/conversations/{conversationId}/messages`). У сервіси передається `X-User-Id` учасника обміну. Якщо обміну немає або користувач не є його учасником, відповідь 404.
+`GET /api/aggregator/swaps/{id}/full` отримує обмін зі swaps-api (`GetSwap`), а потім паралельно (`Task.WhenAll`) забирає сесії з sessions-api (`GetSessionsBySwap`) і розмову з повідомленнями з messages-api (`GetSwapConversation`). Усі виклики йдуть через gRPC, у метаданих передається `x-user-id` учасника обміну. Якщо обміну немає або користувач не є його учасником, відповідь 404.
 
 ```json
 {
@@ -889,11 +890,72 @@ curl -i http://localhost:5000/api/aggregator/swaps/2/full -H "X-User-Id: $U2"
 
 1. У Dashboard зупиніть ресурс `messages-api` (кнопка Stop).
 2. Повторіть `curl -i http://localhost:5000/api/aggregator/swaps/2/full -H "X-User-Id: $U2"`.
-3. Відповідь лишається 200: `messages` порожній, а в `warnings` з'являється `"messages-api is unavailable"`. В Aggregator записується попередження в лог. Відповідь може затриматися до 30 секунд: стандартний resilience handler робить повторні спроби до загального тайм-ауту.
+3. Відповідь лишається 200: `messages` порожній, а в `warnings` з'являється `"messages-api is unavailable"`. В Aggregator записується попередження в лог, а така відповідь не кешується. Відповідь може затриматися приблизно на 10 секунд: це дедлайн gRPC-виклику.
 4. Запустіть `messages-api` знову (Start).
 
 ### Спостережуваність
 
 - Structured logs: у кожного запису є `ServiceName`, `CorrelationId`, `EnvironmentName`, `MachineName`, `ThreadId`, `TraceId`, `SpanId`.
-- Traces: агрегувальний запит видно як ланцюжок gateway → aggregator → swaps-api, далі паралельно sessions-api і messages-api зі spans SQL і MongoDB.
+- Traces: агрегувальний запит видно як ланцюжок gateway → aggregator → gRPC-виклик swaps-api, далі паралельно sessions-api і messages-api зі spans SQL і MongoDB.
 - Бізнес-події пишуться окремими spans і логами: `CreateSwap`, `ChangeSwapStatus` (Swaps.Bll), `CreateSession`, `RescheduleSession` (Sessions.Bll), `SendTextMessage`, `SendFileMessage` (Messages.Application). Тексти повідомлень у логи не потрапляють.
+
+## Лаб. 06 — gRPC і кешування
+
+Заміри HTTP і gRPC та ефект кешу: [docs/lab06-performance.md](docs/lab06-performance.md).
+
+### Redis у платформі
+
+AppHost піднімає ресурс `redis` (`AddRedis("redis").WithDataVolume()`) і передає його рядок підключення в `swaps-api` та `aggregator`. Адреса в `appsettings` не прописується.
+
+### Що кешується
+
+Кеш Swaps дворівневий: L1 — `IMemoryCache` процесу, L2 — Redis. Порядок читання: L1 → L2 → БД, значення з L2 повертається в L1. Код лежить у `Services/Swaps/Swaps.Bll/Caching/`, декоратори `CachedSkillService` і `CachedSwapService` обгортають наявні сервіси, тому кеш діє і для REST, і для gRPC.
+
+| Дані | Ключ | TTL L1 | TTL L2 |
+|---|---|---|---|
+| Усі навички | `swaps:skills:all` | 5 хв | 30 хв |
+| Навичка | `swaps:skill:{id}` | 5 хв | 30 хв |
+| Картка обміну | `swaps:swap:{id}` | 30 с | 2 хв |
+| Повна картка в Aggregator | `aggregator:swap:{id}:full:{userId}` | — | 30 с |
+
+- **Картка обміну** спільна для обох учасників, тому перевірка учасника виконується після читання з кешу і сама не кешується.
+- **Агрегатор** кешує лише повні відповіді (`warnings` порожній). Ключ містить користувача, бо відповідь залежить від учасника. Після зміни обміну зведена картка може бути застарілою до 30 с.
+- **Інвалідація** синхронна, одразу після запису в БД: `CachedSwapService` видаляє `swaps:swap:{id}` з L1 і L2 при створенні, зміні деталей, видаленні та кожній зміні статусу. У лог пишеться `Cache invalidated {Key}, reason {Reason}`. API для зміни навичок у Swaps немає, тому їхні записи застарівають лише за TTL.
+- **Збій Redis** не валить сервіс: помилка логується як Warning, запит іде в БД, а L2 пропускається на 30 с, щоб кожен запит не чекав тайм-ауту.
+- `HybridCache` у .NET дає подібну схему готовою; тут дворівневий кеш реалізовано вручну.
+
+### gRPC-контракти
+
+| Контракт | Методи |
+|---|---|
+| `Services/Swaps/Swaps.Api/Protos/swaps.proto` | `SwapsService.GetSwap`, `SwapsService.GetSkillsByIds` |
+| `Services/Sessions/Sessions.Api/Protos/sessions.proto` | `SessionsService.GetSessionsBySwap` |
+| `Services/Messages/Messages.WebApi/Protos/messages.proto` | `MessagesService.GetSwapConversation` |
+
+Сервіси в папках `Grpc/` — адаптери над наявною BLL і MediatR. Учасник передається в метаданих `x-user-id`, усі виклики логує `GrpcLoggingInterceptor`.
+
+| Ситуація | Статус gRPC | Відповідь Aggregator |
+|---|---|---|
+| Обміну немає | `NotFound` | 404 |
+| Користувач не учасник обміну | `PermissionDenied` (Swaps) | 404, щоб не розкривати існування обміну |
+| Немає або некоректний `x-user-id` | `Unauthenticated` | 401 |
+| Некоректний id | `InvalidArgument` | 400 |
+| Sessions або Messages повернули `NotFound` | `NotFound` | 200, порожній список без `warnings` |
+| Sessions або Messages недоступні | `Unavailable`, `DeadlineExceeded` | 200 із `warnings`, не кешується |
+
+Викликати сервіс напряму можна через `grpcurl` (порт `swaps-api`: 7180; reflection вимкнено, тому контракт передається явно):
+
+```bash
+grpcurl -insecure -import-path Services/Swaps/Swaps.Api/Protos -proto swaps.proto \
+  -H "x-user-id: 7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02" \
+  -d '{"id": 2}' localhost:7180 swaps.SwapsService/GetSwap
+```
+
+### Як перевірити
+
+1. **Кеш.** Двічі виконайте `curl http://localhost:5000/api/swaps/2 -H "X-User-Id: $U2"`. У trace другого запиту немає SQL-span, у логах є `Cache hit swaps:swap:2 at L1`.
+2. **Інвалідація.** Змініть обмін (`PUT /api/swaps/{id}/details` або зміна статусу): наступний GET повертає нові дані, у логах є `Cache invalidated`.
+3. **Збій Redis.** Зупиніть `redis` у Dashboard: сервіси відповідають 200, перший запит повільніший, у логах Warning. Потім запустіть `redis` знову.
+4. **Часткова відповідь.** Зупиніть `sessions-api`: Aggregator повертає 200 із `warnings`, і повторний запит знову звертається до сервісів.
+5. **Кеш Aggregator.** Повторіть запит повної картки протягом 30 с: у логах Aggregator є `Cache hit aggregator:swap:2:full:... at L2`.
+6. **Метрики.** Dashboard → Metrics → `swaps-api` або `aggregator`: лічильники `cache.hits` і `cache.misses` з тегом `cache.level`, у `swaps-api` також `cache.invalidations`.
