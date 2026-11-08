@@ -21,8 +21,14 @@ builder.Services.AddSingleton<CacheMetrics>();
 builder.Services.AddSingleton<TwoLevelCache>();
 
 builder.Services.AddScoped<IUnitOfWork>(_ => new UnitOfWork(connectionString));
-builder.Services.AddScoped<ISwapService, SwapService>();
-builder.Services.AddScoped<ISkillService, SkillService>();
+builder.Services.AddScoped<SwapService>();
+builder.Services.AddScoped<SkillService>();
+builder.Services.AddScoped(sp =>
+    ActivatorUtilities.CreateInstance<CachedSwapService>(sp, (ISwapService)sp.GetRequiredService<SwapService>()));
+builder.Services.AddScoped<ISwapService>(sp => sp.GetRequiredService<CachedSwapService>());
+builder.Services.AddScoped<ISwapCardReader>(sp => sp.GetRequiredService<CachedSwapService>());
+builder.Services.AddScoped<ISkillService>(sp =>
+    ActivatorUtilities.CreateInstance<CachedSkillService>(sp, (ISkillService)sp.GetRequiredService<SkillService>()));
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
