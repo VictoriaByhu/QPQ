@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+option csharp_namespace = "Sessions.Grpc";
+
+package sessions;
+
+import "google/protobuf/timestamp.proto";
+
+// Read access to sessions of accepted swaps for internal services.
+service SessionsService {
+  // Returns an accepted swap with its sessions. The caller is taken from the x-user-id metadata.
+  rpc GetSessionsBySwap (GetSessionsBySwapRequest) returns (SessionsBySwapReply);
+}
+
+message GetSessionsBySwapRequest {
+  int32 swap_id = 1;
+}
+
+message SessionsBySwapReply {
+  int32 swap_id = 1;
+  // GUID of the user who created the swap.
+  string initiator_id = 2;
+  // GUID of the second participant.
+  string partner_id = 3;
+  string status = 4;
+  repeated SessionReply sessions = 5;
+}
+
+message SessionReply {
+  int32 id = 1;
+  int32 swap_id = 2;
+  string format_code = 3;
+  google.protobuf.Timestamp scheduled_at = 4;
+  int32 duration_minutes = 5;
+  string status = 6;
+  // Base64 optimistic concurrency token.
+  string row_version = 7;
+}

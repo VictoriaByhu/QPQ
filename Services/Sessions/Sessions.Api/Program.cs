@@ -2,6 +2,8 @@ using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using Platform.ServiceDefaults;
+using Platform.ServiceDefaults.Grpc;
+using Sessions.Api.Grpc;
 using Sessions.Api.Middleware;
 using Sessions.Api.Services;
 using Sessions.Bll.Mapping;
@@ -42,6 +44,7 @@ builder.Services.AddAutoMapper(cfg =>
 });
 
 builder.Services.AddControllers();
+builder.Services.AddGrpc(o => o.Interceptors.Add<GrpcLoggingInterceptor>());
 
 builder.Services.AddProblemDetails(o => o.CustomizeProblemDetails = ctx =>
     ctx.ProblemDetails.Extensions["traceId"] = ctx.HttpContext.TraceIdentifier);
@@ -98,6 +101,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapControllers();
+app.MapGrpcService<SessionsGrpcService>();
 app.MapDefaultEndpoints();
 
 await app.RunAsync();
