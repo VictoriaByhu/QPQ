@@ -1,8 +1,10 @@
 using System.Text.Json.Serialization;
 using Microsoft.OpenApi.Models;
 using Platform.ServiceDefaults;
+using Platform.ServiceDefaults.Grpc;
 using Messages.Application;
 using Messages.Infrastructure;
+using Messages.WebApi.Grpc;
 using Messages.WebApi.Middleware;
 using Messages.WebApi.Services;
 
@@ -18,6 +20,8 @@ builder.Services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(o => o.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull);
+
+builder.Services.AddGrpc(o => o.Interceptors.Add<GrpcLoggingInterceptor>());
 
 builder.Services.AddProblemDetails(o => o.CustomizeProblemDetails = ctx =>
     ctx.ProblemDetails.Extensions["traceId"] = ctx.HttpContext.TraceIdentifier);
@@ -66,6 +70,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapControllers();
+app.MapGrpcService<MessagesGrpcService>();
 app.MapDefaultEndpoints();
 
 await app.RunAsync();

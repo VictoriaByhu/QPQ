@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+option csharp_namespace = "Messages.Grpc";
+
+package messages;
+
+import "google/protobuf/timestamp.proto";
+
+// Read access to swap conversations for internal services.
+service MessagesService {
+  // Returns the conversation of a swap with all its messages.
+  // The caller is taken from the x-user-id metadata.
+  rpc GetSwapConversation (GetSwapConversationRequest) returns (SwapConversationReply);
+}
+
+message GetSwapConversationRequest {
+  int32 swap_id = 1;
+}
+
+message SwapConversationReply {
+  ConversationReply conversation = 1;
+  repeated MessageReply messages = 2;
+}
+
+message ConversationReply {
+  // MongoDB ObjectId.
+  string id = 1;
+  int32 swap_id = 2;
+  string swap_status = 3;
+  repeated ParticipantReply participants = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+  int32 version = 7;
+}
+
+message ParticipantReply {
+  // GUID of the participant.
+  string user_id = 1;
+  string role = 2;
+  google.protobuf.Timestamp last_read_at = 3;
+}
+
+message MessageReply {
+  // MongoDB ObjectId.
+  string id = 1;
+  string conversation_id = 2;
+  // GUID of the sender.
+  string sender_id = 3;
+  // text, file or system.
+  string type = 4;
+  optional string text = 5;
+  optional string caption = 6;
+  optional string event = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp edited_at = 9;
+  int32 version = 10;
+  repeated AttachmentRefReply attachments = 11;
+}
+
+message AttachmentRefReply {
+  // MongoDB ObjectId.
+  string attachment_id = 1;
+  string file_name = 2;
+}

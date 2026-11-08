@@ -13,6 +13,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Protobuf Include="Protos\messages.proto" GrpcServices="Server" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Messages.Application\Messages.Application.csproj" />
     <ProjectReference Include="..\Messages.Infrastructure\Messages.Infrastructure.csproj" />
     <ProjectReference Include="..\..\..\Platform.ServiceDefaults\Platform.ServiceDefaults.csproj" />
