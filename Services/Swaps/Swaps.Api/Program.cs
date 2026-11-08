@@ -1,6 +1,8 @@
 using System.Reflection;
 using Microsoft.OpenApi.Models;
 using Platform.ServiceDefaults;
+using Platform.ServiceDefaults.Grpc;
+using Swaps.Api.Grpc;
 using Swaps.Api.Middleware;
 using Swaps.Api.Services;
 using Swaps.Bll.Caching;
@@ -42,6 +44,7 @@ builder.Services.AddAutoMapper(cfg =>
 });
 
 builder.Services.AddControllers();
+builder.Services.AddGrpc(o => o.Interceptors.Add<GrpcLoggingInterceptor>());
 
 builder.Services.AddProblemDetails(o => o.CustomizeProblemDetails = ctx =>
     ctx.ProblemDetails.Extensions["traceId"] = ctx.HttpContext.TraceIdentifier);
@@ -92,6 +95,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapControllers();
+app.MapGrpcService<SwapsGrpcService>();
 app.MapDefaultEndpoints();
 
 app.Run();
