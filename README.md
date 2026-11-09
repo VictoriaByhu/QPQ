@@ -658,7 +658,17 @@ dotnet run --project Platform.AppHost
 Для podman перед запуском: `export ASPIRE_CONTAINER_RUNTIME=podman`. Dashboard відкривається за посиланням із консолі (за замовчуванням `https://localhost:17100`, профіль `http` — `http://localhost:15100`).
 Порядок старту: бази → сервіси → Aggregator → Gateway (ланцюжки `WaitFor`; готовність визначає `/health`).
 
-Бази створюються автоматично: `CatalogDb` (`QPQ_CatalogEf`) — міграціями EF Core при старті Catalog, `UserSkillsDb` (`QPQ_UserSkills`) — скриптами `db/p1` (AppHost виконує їх, щойно база готова), `MatchingDb` (`QPQ_Matching`) — індексами й сідінгом Matching. Дані зберігаються між перезапусками (volumes).
+**За замовчуванням усе працює локально** — достатньо пароля SQL Server. Щоб перемкнути окрему базу на віддалений сервер (розробка/production), задайте її рядок підключення в User Secrets AppHost; без секрету використовується локальний контейнер:
+
+```
+dotnet user-secrets set "ConnectionStrings:UserSkillsDb" "<рядок підключення>" --project Platform.AppHost
+dotnet user-secrets set "ConnectionStrings:CatalogDb"    "<рядок підключення>" --project Platform.AppHost
+dotnet user-secrets set "ConnectionStrings:MatchingDb"   "<рядок підключення MongoDB>" --project Platform.AppHost
+```
+
+Для віддаленого SQL Server схему UserSkills (`db/p1`) розгортають вручну, Catalog створює схему міграціями сам; контейнер SQL Server (і пароль) не потрібні, якщо віддаленими є обидві SQL-бази. Для перевірки й здачі лабораторної секрети видаляють (`dotnet user-secrets remove ... --project Platform.AppHost`).
+
+Локальні бази створюються автоматично: `CatalogDb` (`QPQ_CatalogEf`) — міграціями EF Core при старті Catalog, `UserSkillsDb` (`QPQ_UserSkills`) — скриптами `db/p1` (AppHost виконує їх, щойно база готова), `MatchingDb` (`QPQ_Matching`) — індексами й сідінгом Matching. Дані зберігаються між перезапусками (volumes).
 
 > Якщо змінити `sql-password` після першого запуску, том SQL Server збереже старий пароль: видаліть том (`podman volume rm` / Docker Desktop → Volumes) і запустіть знову.
 
