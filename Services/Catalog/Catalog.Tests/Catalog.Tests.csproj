@@ -9,6 +9,12 @@
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Google.Protobuf" Version="3.33.0" />
+    <PackageReference Include="Grpc.Net.Client" Version="2.83.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.83.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.*" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.12" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
@@ -19,6 +25,15 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <!-- Клієнтські типи з того ж catalog.proto збігаються за іменем із серверними з Catalog.Api: у тестах діють локальні. -->
+    <NoWarn>$(NoWarn);CS0436</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Protobuf Include="..\Catalog.Api\Protos\catalog.proto" GrpcServices="Client" Link="Protos\catalog.proto" />
   </ItemGroup>
 
   <ItemGroup>
