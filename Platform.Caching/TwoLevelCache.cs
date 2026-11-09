@@ -107,22 +107,12 @@ public sealed class TwoLevelCache(
         logger.LogInformation("Cache group {Group} moved to version {Version} reason {Reason}", group, version, reason);
     }
 
-    private void SetLocal<T>(string key, T value, CachePolicy policy) where T : class
-    {
-        var options = new MemoryCacheEntryOptions
-        {
-            Size = 1,                                                           // обов'язково, коли заданий SizeLimit
-            AbsoluteExpirationRelativeToNow = policy.L1Absolute,
-            Priority = CacheItemPriority.Normal
-        };
-        if (policy.L1Sliding is { } sliding) options.SlidingExpiration = sliding;
-        options.RegisterPostEvictionCallback((_, _, reason, _) =>
+    private void SetLocal<T>(string key, T value, CachePolicy policy) where T : class =>
+        memory.Set(key, value, CacheExtensions.CreateEntryOptions(policy, reason =>
         {
             if (reason is EvictionReason.Capacity or EvictionReason.Expired or EvictionReason.TokenExpired)
                 metrics.Evicted(reason);
-        });
-        memory.Set(key, value, options);
-    }
+        }));
 
     /// <summary>Операція з L2 під захистом: таймаут, перехоплення помилок, пауза після збою.</summary>
     private async Task<TResult?> TryAsync<TResult>(Func<Task<TResult>> operation, string name, string key)
