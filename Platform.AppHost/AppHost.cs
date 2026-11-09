@@ -32,25 +32,33 @@ builder.Eventing.Subscribe<ResourceReadyEvent>(userSkillsDb.Resource, async (e, 
 
 // ── Мікросервіси з Лаб. 02–04: лише WithReference(БД) — порти й рядки підключення призначає Aspire ──
 var userSkills = builder.AddProject<Projects.UserSkills_Api>("userskills-api")
-    .WithReference(userSkillsDb).WaitFor(userSkillsDb);
+    .WithReference(userSkillsDb).WaitFor(userSkillsDb)
+    .WithHttpHealthCheck("/health");
 
 var catalog = builder.AddProject<Projects.Catalog_Api>("catalog-api")
-    .WithReference(catalogDb).WaitFor(catalogDb);
+    .WithReference(catalogDb).WaitFor(catalogDb)
+    .WithHttpHealthCheck("/health");
 
 var matching = builder.AddProject<Projects.Matching_WebApi>("matching-api")
     .WithReference(matchingDb).WaitFor(matchingDb)
-    .WithEnvironment("Database__Seed", "true");                           // демонстраційні дані для статистики пар
+    .WithEnvironment("Database__Seed", "true")                            // демонстраційні дані для статистики пар
+    .WithHttpHealthCheck("/health");
 
 // ── Aggregator → Gateway: порядок запуску БД → сервіси → Aggregator → Gateway задається ланцюжками WaitFor ──
 var aggregator = builder.AddProject<Projects.Platform_Aggregator>("aggregator")
+    .WithHttpEndpoint()                                                   // порт призначає Aspire; знаходиться за іменем "aggregator"
+    .WithEnvironment("ASPNETCORE_ENVIRONMENT", builder.Environment.EnvironmentName)
     .WithReference(userSkills).WithReference(catalog).WithReference(matching)
-    .WaitFor(userSkills).WaitFor(catalog).WaitFor(matching);
+    .WaitFor(userSkills).WaitFor(catalog).WaitFor(matching)
+    .WithHttpHealthCheck("/health");
 
 builder.AddProject<Projects.Platform_ApiGateway>("gateway")
     .WithHttpEndpoint(port: 5000, name: "public")                         // єдина точка входу для клієнтів
+    .WithEnvironment("ASPNETCORE_ENVIRONMENT", builder.Environment.EnvironmentName)
     .WithExternalHttpEndpoints()
     .WithReference(userSkills).WithReference(catalog).WithReference(matching)
     .WithReference(aggregator)
-    .WaitFor(aggregator);
+    .WaitFor(aggregator)
+    .WithHttpHealthCheck("/health", endpointName: "public");
 
 builder.Build().Run();
