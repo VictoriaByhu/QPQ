@@ -1,4 +1,5 @@
 using System.Data;
+using System.Diagnostics;
 using System.Globalization;
 using AutoMapper;
 using UserSkills.Bll.Dtos;
@@ -6,6 +7,8 @@ using UserSkills.Dal.Interfaces;
 using UserSkills.Domain.Constants;
 using UserSkills.Domain.Exceptions;
 using UserSkills.Domain.Models;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace UserSkills.Bll.Services;
 
@@ -15,8 +18,10 @@ namespace UserSkills.Bll.Services;
 /// додатково беруть UPDLOCK, HOLDLOCK на рядок, що змінюється, тому гонки за один запис виключені,
 /// а читання інших рядків не блокується.
 /// </summary>
-public sealed class UserSkillService(IUnitOfWork uow, IMapper mapper) : IUserSkillService
+public sealed class UserSkillService(IUnitOfWork uow, IMapper mapper, ILogger<UserSkillService>? logger = null) : IUserSkillService
 {
+    private readonly ILogger _log = logger ?? NullLogger<UserSkillService>.Instance;
+
     private const IsolationLevel Isolation = IsolationLevel.ReadCommitted;
 
     public async Task<IReadOnlyList<UserSkillSummaryDto>> ListAsync(
@@ -63,6 +68,10 @@ public sealed class UserSkillService(IUnitOfWork uow, IMapper mapper) : IUserSki
     public async Task<UserSkillDto> CreateAsync(
         Guid userId, CreateUserSkillDto input, CancellationToken ct = default)
     {
+        using var activity = Telemetry.Source.StartActivity("UserSkill.Create");
+        activity?.SetTag("skill.id", input.SkillId);
+        activity?.SetTag("userskill.type", input.Type);
+
         var languages = ToLanguages(input.Languages);
         var slots = ToSlots(input.Slots);
 
@@ -96,8 +105,13 @@ public sealed class UserSkillService(IUnitOfWork uow, IMapper mapper) : IUserSki
         catch
         {
             await uow.RollbackAsync(ct); // жодних часткових змін
+            _log.LogWarning("User skill creation rolled back for skill {SkillId}", input.SkillId);
             throw;
         }
+
+        activity?.SetTag("userskill.id", newId);
+        _log.LogInformation("User skill created: {UserSkillId} ({Type}) for skill {SkillId}, {LanguageCount} languages",
+            newId, input.Type, input.SkillId, languages.Count);
 
         return await GetByIdAsync(newId, ct);
     }
