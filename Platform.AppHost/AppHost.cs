@@ -57,26 +57,39 @@ IResourceBuilder<IResourceWithConnectionString> matchingDb = IsExternal("Matchin
     ? builder.AddConnectionString("MatchingDb")
     : builder.AddMongoDB("mongo").WithDataVolume().AddDatabase("MatchingDb", "QPQ_Matching");
 
-// ── Мікросервіси з Лаб. 02–04: лише WithReference(БД) — порти й рядки підключення призначає Aspire ──
+// ── Redis (Лаб. 06): розподілений кеш, спільний для всіх екземплярів сервісів ─────────────────
+// Окремий контейнер; WithDataVolume зберігає кеш між перезапусками. Рядок підключення Aspire передає
+// сервісам як ConnectionStrings:redis — в appsettings адресу Redis прописувати не потрібно.
+var redis = builder.AddRedis("redis").WithDataVolume();
+
+// ── Мікросервіси з Лаб. 02–04: WithReference(БД) — порти й рядки підключення призначає Aspire ──
+// Лаб. 06: кожен сервіс має ще й окремий gRPC-endpoint "grpc" (лише HTTP/2). Без TLS HTTP/2 не узгоджується
+// через ALPN, тому REST (HTTP/1.1) і gRPC (h2c) слухають різні порти; порт gRPC сервіс бере зі змінної GRPC_PORT.
 var userSkills = builder.AddProject<Projects.UserSkills_Api>("userskills-api")
     .WithReference(userSkillsDb).WaitFor(userSkillsDb)
+    .WithHttpEndpoint(name: "grpc", env: "GRPC_PORT")
     .WithHttpHealthCheck("/health");
 
 var catalog = builder.AddProject<Projects.Catalog_Api>("catalog-api")
     .WithReference(catalogDb).WaitFor(catalogDb)
+    .WithReference(redis).WaitFor(redis)
+    .WithHttpEndpoint(name: "grpc", env: "GRPC_PORT")
     .WithHttpHealthCheck("/health");
 
 var matching = builder.AddProject<Projects.Matching_WebApi>("matching-api")
     .WithReference(matchingDb).WaitFor(matchingDb)
     .WithEnvironment("Database__Seed", IsExternal("MatchingDb") ? "false" : "true")   // демо-дані лише для локальної бази
+    .WithHttpEndpoint(name: "grpc", env: "GRPC_PORT")
     .WithHttpHealthCheck("/health");
 
 // ── Aggregator → Gateway: порядок запуску БД → сервіси → Aggregator → Gateway задається ланцюжками WaitFor ──
+// Aggregator викликає сервіси через gRPC (endpoint "grpc"), кешує зібрані відповіді в Redis; для зовнішніх клієнтів лишається HTTP.
 var aggregator = builder.AddProject<Projects.Platform_Aggregator>("aggregator")
     .WithHttpEndpoint()                                                   // порт призначає Aspire; знаходиться за іменем "aggregator"
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", builder.Environment.EnvironmentName)
     .WithReference(userSkills).WithReference(catalog).WithReference(matching)
-    .WaitFor(userSkills).WaitFor(catalog).WaitFor(matching)
+    .WithReference(redis)
+    .WaitFor(userSkills).WaitFor(catalog).WaitFor(matching).WaitFor(redis)
     .WithHttpHealthCheck("/health");
 
 builder.AddProject<Projects.Platform_ApiGateway>("gateway")
