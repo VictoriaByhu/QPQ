@@ -1,16 +1,21 @@
 using System.Reflection;
 using Matching.Application;
 using Matching.Infrastructure;
+using Matching.WebApi.Grpc;
 using Matching.WebApi.Mapping;
 using Matching.WebApi.Middleware;
 using Microsoft.OpenApi.Models;
 using Platform.ServiceDefaults.Correlation;
+using Platform.ServiceDefaults.Grpc;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Логування (Serilog), трасування (OpenTelemetry), health checks і service discovery — зі спільного ServiceDefaults.
 builder.AddServiceDefaults();
+
+// gRPC-сервер (Лаб. 06): AddGrpc + LoggingInterceptor і окремий HTTP/2-endpoint, порт якого дає AppHost (GRPC_PORT).
+builder.AddGrpcServerDefaults();
 
 // Кожен шар надає власний метод розширення.
 builder.Services
@@ -58,6 +63,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapControllers();
+app.MapGrpcService<MatchingGrpcService>();       // gRPC (HTTP/2) для Aggregator; REST лишається для зовнішніх клієнтів
 app.MapDefaultEndpoints();                       // /health (разом із перевіркою MongoDB) і /alive
 
 app.Run();
