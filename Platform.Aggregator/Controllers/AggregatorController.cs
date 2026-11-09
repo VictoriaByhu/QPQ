@@ -22,9 +22,9 @@ public sealed class AggregatorController(ISkillAggregationService aggregation) :
                 ? NotFound(new ProblemDetails { Status = 404, Title = "Skill not found", Detail = $"Skill {id} does not exist in catalog-api." })
                 : Ok(result);
         }
-        catch (HttpRequestException ex)
+        catch (UpstreamUnavailableException ex)
         {
-            return Problem(statusCode: 503, title: "catalog-api is unavailable",
+            return Problem(statusCode: 503, title: $"{ex.Service} is unavailable",
                 detail: ex.Message);
         }
     }
