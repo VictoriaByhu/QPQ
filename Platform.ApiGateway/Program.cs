@@ -4,6 +4,7 @@ using Platform.ServiceDefaults.Correlation;
 using Serilog;
 using Yarp.ReverseProxy.Forwarder;
 using Yarp.ReverseProxy.Model;
+using Yarp.ReverseProxy.Transforms;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -13,7 +14,14 @@ builder.AddServiceDefaults();
 // YARP: маршрути й кластери — у секції ReverseProxy (appsettings.json), адреси — логічні імена сервісів.
 builder.Services.AddReverseProxy()
     .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"))
-    .AddServiceDiscoveryDestinationResolver();     // http://catalog-api -> реальна адреса від Aspire
+    .AddServiceDiscoveryDestinationResolver()      // http://catalog-api -> реальна адреса від Aspire
+    // X-Correlation-Id у відповіді ставить Gateway: перезаписуємо копію від сервісу, щоб заголовок не дублювався.
+    .AddTransforms(t => t.AddResponseTransform(ctx =>
+    {
+        var response = ctx.HttpContext.Response.Headers;
+        response[CorrelationIdMiddleware.HeaderName] = ctx.HttpContext.Request.Headers[CorrelationIdMiddleware.HeaderName];
+        return ValueTask.CompletedTask;
+    }));
 
 // Власні метрики Gateway: запити, помилки, тривалість (запити за секунду / середній час / частка помилок).
 var meter = new Meter("Platform.ApiGateway");
