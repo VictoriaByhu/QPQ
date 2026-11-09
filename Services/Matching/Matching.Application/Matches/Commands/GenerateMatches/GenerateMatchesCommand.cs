@@ -11,9 +11,11 @@ using Matching.Domain.Services;
 using Matching.Domain.ValueObjects;
 using Microsoft.Extensions.Logging;
 
+using Matching.Application.Caching;
 namespace Matching.Application.Matches.Commands.GenerateMatches;
 
 /// <summary>Підбирає пари для користувача: його бажання проти чужих пропозицій (і навпаки для взаємності).</summary>
+[InvalidatesCache(CacheGroups.Matches, CacheGroups.SkillStats)]
 public sealed record GenerateMatchesCommand(string UserId) : ICommand<GenerateMatchesResult>;
 
 public sealed class GenerateMatchesCommandValidator : AbstractValidator<GenerateMatchesCommand>

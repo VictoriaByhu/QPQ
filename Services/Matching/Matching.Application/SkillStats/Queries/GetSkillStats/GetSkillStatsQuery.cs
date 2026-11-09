@@ -5,8 +5,10 @@ using Matching.Application.Common.Exceptions;
 using Matching.Application.Common.Interfaces;
 using Matching.Application.Common.Models;
 
+using Matching.Application.Caching;
 namespace Matching.Application.SkillStats.Queries.GetSkillStats;
 
+[Cacheable(CacheGroups.SkillStats, CacheKind.Entity)]
 public sealed record GetSkillStatsQuery(int SkillId) : IQuery<SkillStatsDto>;
 
 public sealed class GetSkillStatsQueryValidator : AbstractValidator<GetSkillStatsQuery>

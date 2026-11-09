@@ -1,3 +1,4 @@
+using Platform.Caching;
 using System.Reflection;
 using Matching.Application;
 using Matching.Infrastructure;
@@ -16,6 +17,9 @@ builder.AddServiceDefaults();
 
 // gRPC-сервер (Лаб. 06): AddGrpc + LoggingInterceptor і окремий HTTP/2-endpoint, порт якого дає AppHost (GRPC_PORT).
 builder.AddGrpcServerDefaults();
+
+// Кешування (Лаб. 06): L1 IMemoryCache + L2 Redis зі спільної бібліотеки Platform.Caching; запити кешує CachingBehavior у MediatR.
+builder.AddTwoLevelCache("Matching");
 
 // Кожен шар надає власний метод розширення.
 builder.Services
@@ -64,7 +68,8 @@ if (app.Environment.IsDevelopment())
 
 app.MapControllers();
 app.MapGrpcService<MatchingGrpcService>();       // gRPC (HTTP/2) для Aggregator; REST лишається для зовнішніх клієнтів
-app.MapDefaultEndpoints();                       // /health (разом із перевіркою MongoDB) і /alive
+app.MapDefaultEndpoints();
+app.MapCacheHealth();                            // GET /health/cache: hits/misses/hitRatio за рівнями                       // /health (разом із перевіркою MongoDB) і /alive
 
 app.Run();
 

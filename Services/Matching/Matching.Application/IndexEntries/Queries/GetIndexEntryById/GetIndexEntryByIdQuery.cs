@@ -6,8 +6,10 @@ using Matching.Application.Common.Interfaces;
 using Matching.Application.Common.Models;
 using Matching.Application.Common.Validation;
 
+using Matching.Application.Caching;
 namespace Matching.Application.IndexEntries.Queries.GetIndexEntryById;
 
+[Cacheable(CacheGroups.IndexEntries, CacheKind.Entity)]
 public sealed record GetIndexEntryByIdQuery(string Id) : IQuery<IndexEntryDto>;
 
 public sealed class GetIndexEntryByIdQueryValidator : AbstractValidator<GetIndexEntryByIdQuery>

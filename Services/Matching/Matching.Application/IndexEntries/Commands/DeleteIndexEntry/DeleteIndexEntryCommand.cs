@@ -6,9 +6,11 @@ using Matching.Application.Common.Exceptions;
 using Matching.Application.Common.Validation;
 using Matching.Domain.Interfaces;
 
+using Matching.Application.Caching;
 namespace Matching.Application.IndexEntries.Commands.DeleteIndexEntry;
 
 /// <summary>Видаляє запис індексу (подія UserSkillsChanged або UserDeleted).</summary>
+[InvalidatesCache(CacheGroups.IndexEntries, CacheGroups.SkillStats)]
 public sealed record DeleteIndexEntryCommand(string Id) : ICommand;
 
 public sealed class DeleteIndexEntryCommandValidator : AbstractValidator<DeleteIndexEntryCommand>

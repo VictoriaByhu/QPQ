@@ -6,8 +6,10 @@ using Matching.Application.Common.Interfaces;
 using Matching.Application.Common.Models;
 using Matching.Application.Common.Validation;
 
+using Matching.Application.Caching;
 namespace Matching.Application.Matches.Queries.GetMatchById;
 
+[Cacheable(CacheGroups.Matches, CacheKind.Entity)]
 public sealed record GetMatchByIdQuery(string Id) : IQuery<MatchDto>;
 
 public sealed class GetMatchByIdQueryValidator : AbstractValidator<GetMatchByIdQuery>

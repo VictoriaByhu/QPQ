@@ -5,9 +5,11 @@ using Matching.Application.Common.Interfaces;
 using Matching.Application.Common.Models;
 using Matching.Application.Common.Validation;
 
+using Matching.Application.Caching;
 namespace Matching.Application.Matches.Queries.GetMatchesList;
 
 /// <summary>Пари користувача за спаданням оцінки; відхилені приховані, якщо не запрошено інше.</summary>
+[Cacheable(CacheGroups.Matches)]
 public sealed record GetMatchesListQuery(string UserId, bool IncludeDismissed = false, int Page = 1, int PageSize = 20)
     : IQuery<PagedResult<MatchDto>>;
 

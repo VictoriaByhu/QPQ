@@ -1,5 +1,6 @@
 using FluentValidation;
 using MediatR;
+using Matching.Application.Caching;
 using Matching.Application.Common.Behaviors;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -25,6 +26,7 @@ public static class DependencyInjection
             cfg.AddOpenBehavior(typeof(LoggingBehavior<,>));       // 1: бачить усе, включно з відхиленими запитами
             cfg.AddOpenBehavior(typeof(ValidationBehavior<,>));    // 2: відхиляє некоректні дані до обробника
             cfg.AddOpenBehavior(typeof(PerformanceBehavior<,>));   // 3: вимірює лише час обробника
+            cfg.AddOpenBehavior(typeof(CachingBehavior<,>));       // 4: кеш запитів (L1+L2) та інвалідація командами; найближче до обробника
         });
 
         services.AddValidatorsFromAssembly(assembly);

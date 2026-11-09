@@ -6,8 +6,10 @@ using Matching.Application.Common.Models;
 using Matching.Application.Common.Validation;
 using Matching.Domain.Enums;
 
+using Matching.Application.Caching;
 namespace Matching.Application.IndexEntries.Queries.GetIndexEntriesList;
 
+[Cacheable(CacheGroups.IndexEntries)]
 public sealed record GetIndexEntriesListQuery(
     string? UserId, int? SkillId, string? Type, int Page = 1, int PageSize = 20)
     : IQuery<PagedResult<IndexEntryDto>>;

@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Matching.Domain\Matching.Domain.csproj" />
+    <ProjectReference Include="..\..\..\Platform.Caching\Platform.Caching.csproj" />
   </ItemGroup>
 
 </Project>

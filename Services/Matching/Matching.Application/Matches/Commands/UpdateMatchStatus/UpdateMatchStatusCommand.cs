@@ -8,9 +8,11 @@ using Matching.Domain.Enums;
 using Matching.Domain.Exceptions;
 using Matching.Domain.Interfaces;
 
+using Matching.Application.Caching;
 namespace Matching.Application.Matches.Commands.UpdateMatchStatus;
 
 /// <summary>Користувач переглянув або відхилив пару. Повертає нову версію документа.</summary>
+[InvalidatesCache(CacheGroups.Matches, CacheGroups.SkillStats)]
 public sealed record UpdateMatchStatusCommand(string Id, int ExpectedVersion, string Status) : ICommand<int>;
 
 public sealed class UpdateMatchStatusCommandValidator : AbstractValidator<UpdateMatchStatusCommand>

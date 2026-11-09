@@ -1,9 +1,11 @@
 using Matching.Application.Common;
 using Matching.Application.Common.Models;
 
+using Matching.Application.Caching;
 namespace Matching.Application.IndexEntries.Commands.CreateIndexEntry;
 
 /// <summary>Створює запис індексу (копію UserSkills). Повертає Id нового документа як рядок.</summary>
+[InvalidatesCache(CacheGroups.IndexEntries, CacheGroups.SkillStats)]
 public sealed record CreateIndexEntryCommand(
     int UserSkillId, string UserId, int SkillId, string SkillName,
     string Type, int Level, string Status, int? ExperienceYears,
