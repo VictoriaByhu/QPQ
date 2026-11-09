@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
+using MongoDB.Driver.Core.Extensions.DiagnosticSources;
 using Matching.Application.Common.Interfaces;
 using Matching.Domain.Interfaces;
 using Matching.Infrastructure.Persistence;
@@ -30,8 +31,14 @@ public static class DependencyInjection
             .ValidateOnStart();
 
         // Клієнт MongoDB потокобезпечний і створюється один раз; контекст отримує його через DI.
+        // Підписка на DiagnosticSources: кожна команда MongoDB стає span у розподіленому трасуванні (Лаб. 05).
         services.AddSingleton<IMongoClient>(sp =>
-            new MongoClient(sp.GetRequiredService<IOptions<MongoDbOptions>>().Value.ConnectionString));
+        {
+            var settings = MongoClientSettings.FromConnectionString(
+                sp.GetRequiredService<IOptions<MongoDbOptions>>().Value.ConnectionString);
+            settings.ClusterConfigurator = cb => cb.Subscribe(new DiagnosticsActivityEventSubscriber());
+            return new MongoClient(settings);
+        });
         services.AddSingleton<MongoDbContext>();
 
         services.AddScoped<IUserSkillIndexRepository, UserSkillIndexRepository>();

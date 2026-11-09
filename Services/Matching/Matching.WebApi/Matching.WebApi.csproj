@@ -19,6 +19,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Matching.Application\Matching.Application.csproj" />
     <ProjectReference Include="..\Matching.Infrastructure\Matching.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\Platform.ServiceDefaults\Platform.ServiceDefaults.csproj" />
   </ItemGroup>
 
 </Project>

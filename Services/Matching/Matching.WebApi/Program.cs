@@ -4,16 +4,13 @@ using Matching.Infrastructure;
 using Matching.WebApi.Mapping;
 using Matching.WebApi.Middleware;
 using Microsoft.OpenApi.Models;
+using Platform.ServiceDefaults.Correlation;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Serilog: рівні й перевизначення — з конфігурації; LoggingBehavior пише через ILogger<T>.
-builder.Host.UseSerilog((ctx, cfg) => cfg
-    .ReadFrom.Configuration(ctx.Configuration)
-    .Enrich.FromLogContext()
-    .WriteTo.Console(outputTemplate:
-        "[{Timestamp:HH:mm:ss} {Level:u3}] {SourceContext} {Message:lj} {Properties:j}{NewLine}{Exception}"));
+// Логування (Serilog), трасування (OpenTelemetry), health checks і service discovery — зі спільного ServiceDefaults.
+builder.AddServiceDefaults();
 
 // Кожен шар надає власний метод розширення.
 builder.Services
@@ -49,6 +46,7 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
+app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseSerilogRequestLogging();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
@@ -60,7 +58,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapControllers();
-app.MapHealthChecks("/health");
+app.MapDefaultEndpoints();                       // /health (разом із перевіркою MongoDB) і /alive
 
 app.Run();
 
