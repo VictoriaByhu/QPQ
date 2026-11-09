@@ -1,9 +1,12 @@
+using System.Diagnostics;
 using AutoMapper;
 using Catalog.Bll.Dtos;
 using Catalog.Dal.Interfaces;
 using Catalog.Domain.Exceptions;
 using Catalog.Domain.Models;
 using Catalog.Domain.Specifications;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Catalog.Bll.Services;
 
@@ -11,8 +14,10 @@ namespace Catalog.Bll.Services;
 /// Бізнес-логіка навичок. Працює лише через репозиторії й Unit of Work; правила самої сутності
 /// перевіряє сутність, а сервіс — ті, для яких потрібні інші дані з бази (унікальність, існування).
 /// </summary>
-public class SkillService(IUnitOfWork uow, IMapper mapper) : ISkillService
+public class SkillService(IUnitOfWork uow, IMapper mapper, ILogger<SkillService>? logger = null) : ISkillService
 {
+    private readonly ILogger _log = logger ?? NullLogger<SkillService>.Instance;
+
     public async Task<PagedResult<SkillListItemDto>> GetListAsync(SkillQuery query, CancellationToken ct = default)
     {
         var page = Paging.NormalizePage(query.Page);
@@ -43,6 +48,9 @@ public class SkillService(IUnitOfWork uow, IMapper mapper) : ISkillService
 
     public async Task<SkillDto> CreateAsync(CreateSkillDto input, CancellationToken ct = default)
     {
+        using var activity = Telemetry.Source.StartActivity("Skill.Create");
+        activity?.SetTag("skill.category_id", input.CategoryId);
+
         await EnsureCategoryExistsAsync(input.CategoryId, ct);
         await EnsureUniqueAsync(input.Name.Trim(), input.Slug.Trim(), exceptId: null, ct);
 
@@ -60,11 +68,17 @@ public class SkillService(IUnitOfWork uow, IMapper mapper) : ISkillService
         await uow.Skills.AddAsync(skill, ct);
         await uow.SaveChangesAsync(ct);
 
+        activity?.SetTag("skill.id", skill.Id);
+        _log.LogInformation("Skill created: {SkillId} {Slug} in category {CategoryId} with {TagCount} tags",
+            skill.Id, skill.Slug, input.CategoryId, input.TagIds?.Count() ?? 0);
         return await GetByIdAsync(skill.Id, ct);
     }
 
     public async Task<SkillDto> UpdateAsync(int id, UpdateSkillDto input, CancellationToken ct = default)
     {
+        using var activity = Telemetry.Source.StartActivity("Skill.Update");
+        activity?.SetTag("skill.id", id);
+
         var skill = await uow.Skills.GetWithDetailsAsync(id, ct)
                     ?? throw new EntityNotFoundException($"Skill {id} was not found.");
 
@@ -80,6 +94,7 @@ public class SkillService(IUnitOfWork uow, IMapper mapper) : ISkillService
         skill.SetDetail(input.Description, input.IconUrl);
 
         await uow.SaveChangesAsync(ct);
+        _log.LogInformation("Skill updated: {SkillId} {Slug}", id, skill.Slug);
         return await GetByIdAsync(id, ct);
     }
 
@@ -91,6 +106,7 @@ public class SkillService(IUnitOfWork uow, IMapper mapper) : ISkillService
 
         skill.SoftDelete();
         await uow.SaveChangesAsync(ct);
+        _log.LogInformation("Skill soft-deleted: {SkillId}", id);
     }
 
     public async Task AddTagAsync(int skillId, int tagId, CancellationToken ct = default)
