@@ -1,88 +1,125 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
+using Grpc.Core;
+using Microsoft.Extensions.Caching.Distributed;
+using QPQ.Reviews.Grpc; // Неймспейс з нашого згенерованого .proto файлу
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Підключаємо нашу інфраструктуру (Serilog, OpenTelemetry, HealthChecks)
+// 1. Інфраструктура
 builder.AddServiceDefaults();
-
-// Залишаємо OpenAPI з твого початкового шаблону
 builder.Services.AddOpenApi();
 
-// 2. Налаштування Композитного DTO (camelCase та ігнорування null-значень)
+// 2. Налаштування Композитного DTO
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
-    options.SerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+    options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
     options.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
 });
 
-// 3. Реєстрація Typed HttpClients через Service Discovery Aspire
-builder.Services.AddHttpClient<ReviewsClient>(client =>
-    client.BaseAddress = new Uri("http://reviews-api"));
+// ==========================================
+// ЛАБ 06: РЕЄСТРАЦІЯ gRPC ТА REDIS
+// ==========================================
+// Підключаємо Redis для кешування результатів агрегатора
+builder.AddRedisDistributedCache("redis");
 
-// Заглушка для SwapService, поки він вимкнений у Solution
+// Реєструємо типізований gRPC-клієнт через Service Discovery Aspire
+builder.Services.AddGrpcClient<ReviewsService.ReviewsServiceClient>(client =>
+{
+    client.Address = new Uri("https://reviews-api");
+});
+
+// Заглушка для SwapService (залишаємо на HTTP, бо він поки вимкнений)
 builder.Services.AddHttpClient<SwapClient>(client =>
     client.BaseAddress = new Uri("http://swap-service"));
 
 var app = builder.Build();
 
-// Маршрути для HealthChecks та Aspire
 app.MapDefaultEndpoints();
-
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
-
 app.UseHttpsRedirection();
 
-// 4. Агрегувальний ендпоінт із паралельними викликами Task.WhenAll
+// ==========================================
+// 4. Агрегувальний ендпоінт (gRPC + Redis Кеш)
+// ==========================================
 app.MapGet("/api/aggregator/composite/{id}", async (
     string id,
-    ReviewsClient reviewsClient,
+    ReviewsService.ReviewsServiceClient reviewsGrpcClient,
     SwapClient swapClient,
+    IDistributedCache cache,
     CancellationToken cancellationToken,
     ILogger<Program> logger) =>
 {
+    // ЛАБ 06: Перевіряємо кеш Агрегатора ПЕРЕД викликами
+    var cacheKey = $"aggregator:composite:{id}";
+    var cachedData = await cache.GetStringAsync(cacheKey, cancellationToken);
+
+    if (!string.IsNullOrEmpty(cachedData))
+    {
+        logger.LogInformation("Aggregator cache HIT for {CacheKey}", cacheKey);
+        var cachedResult = JsonSerializer.Deserialize<CompositeDto>(cachedData);
+        return Results.Ok(cachedResult);
+    }
+
+    logger.LogInformation("Aggregator cache MISS for {CacheKey}. Fetching data...", cacheKey);
+
     var result = new CompositeDto();
     var sw = System.Diagnostics.Stopwatch.StartNew();
+    var warnings = new List<string>();
 
-    // Запускаємо виклики паралельно (БЕЗ використання .Result або Task.WaitAll)
-    var reviewsTask = reviewsClient.GetReviewsAsync(id, cancellationToken);
+    // Готуємо gRPC-запит для Відгуків
+    var reviewRequest = new GetReviewRequest { Id = id };
+
+    // Запускаємо виклики паралельно
+    var reviewsTask = reviewsGrpcClient.GetReviewAsync(reviewRequest, cancellationToken: cancellationToken).ResponseAsync;
     var swapTask = swapClient.GetSwapDataAsync(id, cancellationToken);
 
     try
     {
-        // Чекаємо завершення всіх запитів одночасно
+        // Чекаємо завершення всіх запитів паралельно
         await Task.WhenAll(reviewsTask, swapTask);
+    }
+    catch (RpcException ex) when (ex.StatusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded)
+    {
+        logger.LogWarning(ex, "gRPC сервіс відгуків недоступний.");
     }
     catch (Exception ex)
     {
-        // 5. Часткові відмови: якщо один сервіс впав, ми не валимо весь Агрегатор (немає помилки 500)
-        logger.LogWarning(ex, "Один із сервісів відхилив запит або недоступний.");
+        logger.LogWarning(ex, "Один із сервісів (HTTP) відхилив запит або недоступний.");
     }
 
     sw.Stop();
 
-    // Збираємо дані від Reviews (перевіряємо, чи таска успішна)
+    // Збираємо дані від Reviews (gRPC)
     if (reviewsTask.IsCompletedSuccessfully && reviewsTask.Result != null)
     {
         result.Reviews = reviewsTask.Result;
-        logger.LogInformation("Reviews fetched in {Elapsed}ms", sw.ElapsedMilliseconds);
+        logger.LogInformation("Reviews fetched via gRPC in {Elapsed}ms", sw.ElapsedMilliseconds);
     }
     else
     {
         result.Warnings.Add("Сервіс відгуків тимчасово недоступний.");
     }
 
-    // Збираємо дані від Swaps
+    // Збираємо дані від Swaps (HTTP)
     if (swapTask.IsCompletedSuccessfully && swapTask.Result != null)
     {
         result.Swaps = swapTask.Result;
-        logger.LogInformation("Swaps fetched in {Elapsed}ms", sw.ElapsedMilliseconds);
     }
     else
     {
         result.Warnings.Add("Сервіс обміну (SwapService) тимчасово недоступний.");
+    }
+
+    // ЛАБ 06: Кешуємо агреговану відповідь у Redis (тільки якщо немає попереджень)
+    if (result.Warnings.Count == 0)
+    {
+        var serializedResult = JsonSerializer.Serialize(result);
+        var cacheOptions = new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(30) }; // Короткий TTL
+        await cache.SetStringAsync(cacheKey, serializedResult, cacheOptions, cancellationToken);
     }
 
     return Results.Ok(result);
@@ -91,7 +128,7 @@ app.MapGet("/api/aggregator/composite/{id}", async (
 app.Run();
 
 // ==========================================
-// ДОПОМІЖНІ КЛАСИ ДЛЯ АГРЕГАТОРА (Typed HttpClients та DTO)
+// ДОПОМІЖНІ КЛАСИ
 // ==========================================
 
 public class CompositeDto
@@ -101,44 +138,20 @@ public class CompositeDto
     public List<string> Warnings { get; set; } = new();
 }
 
-public class ReviewsClient(HttpClient httpClient, ILogger<ReviewsClient> logger)
-{
-    public async Task<object?> GetReviewsAsync(string id, CancellationToken cancellationToken)
-    {
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        try
-        {
-            var response = await httpClient.GetAsync($"/api/reviews/{id}", cancellationToken);
-            response.EnsureSuccessStatusCode();
-
-            logger.LogInformation("Call to Reviews API took {Elapsed}ms", sw.ElapsedMilliseconds);
-            return await response.Content.ReadFromJsonAsync<object>(cancellationToken: cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Помилка при виклику Reviews API");
-            throw;
-        }
-    }
-}
-
 public class SwapClient(HttpClient httpClient, ILogger<SwapClient> logger)
 {
     public async Task<object?> GetSwapDataAsync(string id, CancellationToken cancellationToken)
     {
-        var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             var response = await httpClient.GetAsync($"/api/swaps/{id}", cancellationToken);
             response.EnsureSuccessStatusCode();
-
-            logger.LogInformation("Call to Swaps API took {Elapsed}ms", sw.ElapsedMilliseconds);
             return await response.Content.ReadFromJsonAsync<object>(cancellationToken: cancellationToken);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Помилка при виклику Swaps API");
-            throw;
+            throw; // Task.WhenAll перехопить це як помилку таски
         }
     }
 }
