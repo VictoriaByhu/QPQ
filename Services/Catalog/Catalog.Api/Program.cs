@@ -9,6 +9,7 @@ using Catalog.Bll.Validators;
 using Catalog.Dal;
 using Catalog.Dal.Interfaces;
 using FluentValidation;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using Platform.ServiceDefaults.Correlation;
@@ -122,6 +123,11 @@ if (app.Environment.IsDevelopment())
 app.MapControllers();
 app.MapGrpcService<CatalogGrpcService>();       // gRPC (HTTP/2) для Aggregator; REST лишається для зовнішніх клієнтів
 app.MapDefaultEndpoints();
+app.MapHealthChecks("/health/cache", new HealthCheckOptions
+{
+    Predicate = r => r.Name == "cache",
+    ResponseWriter = (http, report) => CacheHealthCheck.WriteResponse(http, report)      // hits/misses/hitRatio за рівнями
+});
 
 app.Run();
 

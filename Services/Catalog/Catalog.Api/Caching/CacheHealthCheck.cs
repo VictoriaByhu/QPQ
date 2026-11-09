@@ -1,4 +1,6 @@
+using System.Text.Json;
 using Catalog.Bll.Caching;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 namespace Catalog.Api.Caching;
@@ -23,5 +25,18 @@ public sealed class CacheHealthCheck(CacheMetrics metrics, ITwoLevelCache cache)
         return Task.FromResult(cache.IsDistributedCacheAvailable
             ? HealthCheckResult.Healthy("Cache statistics", data)
             : HealthCheckResult.Degraded("Redis is unavailable: serving from L1 and the database", data: data));
+    }
+
+    /// <summary>JSON-відповідь для /health/cache: статус і статистика кешу (стандартний writer віддає лише статус).</summary>
+    public static Task WriteResponse(HttpContext http, HealthReport report)
+    {
+        http.Response.ContentType = "application/json";
+        var entry = report.Entries["cache"];
+        return http.Response.WriteAsync(JsonSerializer.Serialize(new
+        {
+            status = entry.Status.ToString(),
+            description = entry.Description,
+            data = entry.Data
+        }, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
     }
 }
