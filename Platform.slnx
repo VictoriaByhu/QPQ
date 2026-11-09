@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/Platform/">
+    <Project Path="Platform.ServiceDefaults/Platform.ServiceDefaults.csproj" />
+  </Folder>
   <Folder Name="/Services/" />
   <Folder Name="/Services/UserSkills/">
     <Project Path="Services/UserSkills/UserSkills.Api/UserSkills.Api.csproj" />
