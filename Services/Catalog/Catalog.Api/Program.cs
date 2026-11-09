@@ -8,6 +8,7 @@ using Catalog.Dal.Interfaces;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
+using Platform.ServiceDefaults.Correlation;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -17,13 +18,9 @@ var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("CatalogDb")
     ?? throw new InvalidOperationException("Connection string 'CatalogDb' is missing");
 
-// Serilog: рівні й перевизначення — з конфігурації; SQL-команди EF Core вмикаються
-// в appsettings.Development.json (Microsoft.EntityFrameworkCore.Database.Command = Information).
-builder.Host.UseSerilog((ctx, cfg) => cfg
-    .ReadFrom.Configuration(ctx.Configuration)
-    .Enrich.FromLogContext()
-    .WriteTo.Console(outputTemplate:
-        "[{Timestamp:HH:mm:ss} {Level:u3}] {CorrelationId} {Message:lj} {Properties:j}{NewLine}{Exception}"));
+// Логування (Serilog), трасування (OpenTelemetry), health checks і service discovery — зі спільного ServiceDefaults.
+// SQL-команди EF Core вмикаються в appsettings.Development.json (Serilog:MinimumLevel:Override).
+builder.AddServiceDefaults();
 
 // DAL: DbContext і Unit of Work (один контекст на HTTP-запит).
 builder.Services.AddDbContext<CatalogDbContext>(o => o.UseSqlServer(connectionString));
@@ -77,6 +74,7 @@ if (app.Configuration.GetValue("Database:Migrate", true))
         await DbInitializer.SeedAsync(db);
 }
 
+app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<RequestContextMiddleware>();
 app.UseSerilogRequestLogging(o =>
     o.EnrichDiagnosticContext = (diag, http) => diag.Set("RequestPath", http.Request.Path.Value));
@@ -90,6 +88,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapControllers();
+app.MapDefaultEndpoints();
 
 app.Run();
 
