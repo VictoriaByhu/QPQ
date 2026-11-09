@@ -1,5 +1,7 @@
 # QPQ.Matching (Лаб. 04, Clean Architecture + CQRS + MongoDB)
 
+> Запуск усієї платформи, адреса Gateway і приклади curl — у блоці [«Швидкий запуск платформи»](../../README.md#швидкий-запуск-платформи) кореневого README.
+
 Піддомен **Skills**, API **Matching** (Проєкт №3): підбір пар «хто пропонує те, що потрібно іншому». Це read-модель на MongoDB (`QPQ_Matching`): колекції `userSkillIndex` (копія записів UserSkills), `matches` (знайдені пари) і `skillStats` (похідні лічильники). Структура документів визначена в Лаб. 01: [db/p3/matching.collections.js](../../db/p3/matching.collections.js), приклади: [docs/skills-document-examples.md](../../docs/skills-document-examples.md).
 
 Методичка наводить приклад на домені «Відгуки»; тут ті самі прийоми застосовано до власного домену Matching.
