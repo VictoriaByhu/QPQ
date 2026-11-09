@@ -715,8 +715,11 @@ curl -i http://localhost:5000/api/aggregator/skills/1/full      # картка �
 | Частина | Файли |
 |---|---|
 | Redis і gRPC-endpoint'и в оркестрації | `Platform.AppHost/AppHost.cs` — `AddRedis("redis").WithDataVolume()`, `WithReference(redis)`, `WaitFor`, endpoint `grpc` (`env: GRPC_PORT`) |
-| gRPC-сервер, `LoggingInterceptor`, метрики | `Platform.ServiceDefaults/Grpc/*`, `Extensions.cs` (meter `Catalog.Cache`, `Aggregator.Cache`, `Grpc.*`) |
-| Двохрівневий кеш Catalog | `Services/Catalog/Catalog.Bll/Caching/*` (`TwoLevelCache`, `CachedSkillService`, `CachedReferenceServices`, `CacheMetrics`) |
+| gRPC-сервер, `LoggingInterceptor`, метрики | `Platform.ServiceDefaults/Grpc/*`, `Extensions.cs` (meter `Catalog.Cache`, `UserSkills.Cache`, `Matching.Cache`, `Aggregator.Cache`, `Grpc.*`) |
+| Спільне ядро кешу | `Platform.Caching/*` (`TwoLevelCache`, `CachePolicy`, `CacheMetrics`, `CacheHealthCheck`, `AddTwoLevelCache`, `MapCacheHealth`) — підключається в кожному сервісі одним викликом `builder.AddTwoLevelCache("<Сервіс>")` |
+| Кеш Catalog | `Services/Catalog/Catalog.Bll/Caching/*` (декоратори `CachedSkillService`, `CachedCategoryService`, `CachedTagService`) |
+| Кеш UserSkills | `Services/UserSkills/UserSkills.Bll/Caching/*` (довідники й `ListBySkill`; списки й картки користувача не кешуються через `RowVersion`) |
+| Кеш Matching | `Services/Matching/Matching.Application/Caching/*` (`CachingBehavior` у MediatR: атрибути `[Cacheable]` на запитах, `[InvalidatesCache]` на командах) |
 | Health check і прогрівання кешу | `Services/Catalog/Catalog.Api/Caching/*` |
 | `.proto`-контракти | `Services/Catalog/Catalog.Api/Protos/catalog.proto`, `Services/UserSkills/UserSkills.Api/Protos/userskills.proto`, `Services/Matching/Matching.WebApi/Protos/matching.proto` |
 | gRPC-сервіси | `*/Grpc/CatalogGrpcService.cs`, `UserSkillsGrpcService.cs`, `MatchingGrpcService.cs` — адаптери над бізнес-логікою Лаб. 02–04 |
@@ -725,7 +728,7 @@ curl -i http://localhost:5000/api/aggregator/skills/1/full      # картка �
 ### Кешування
 
 - **Cache-aside** у декораторах над сервісами Catalog: `CachedSkillService`, `CachedCategoryService`, `CachedTagService`. Контролери й gRPC залежать від `ISkillService` і не знають про кеш, тому **REST і gRPC користуються одним кешем** без дублювання коду. Реєстрація — у `Program.cs`.
-- **L1** — `IMemoryCache` із `SizeLimit = 10 000` (кожен запис має `Size`), absolute і sliding expiration, лічильник витіснень. **L2** — `IDistributedCache` поверх Redis (пакет `Aspire.StackExchange.Redis.DistributedCaching`, рядок підключення Aspire передає як `ConnectionStrings:redis`). DTO серіалізуються через `System.Text.Json`. Схему L1 → L2 → база з заповненням на зворотному шляху написано вручну (`TwoLevelCache`); готовий аналог у .NET — `HybridCache` (додатково захищає від одночасного перерахунку одного значення багатьма запитами й має інвалідацію за тегами), у цій роботі його не використано.
+- **L1** — `IMemoryCache` із `SizeLimit = 10 000` (кожен запис має `Size`), absolute і sliding expiration, лічильник витіснень. **L2** — `IDistributedCache` поверх Redis (пакет `Aspire.StackExchange.Redis.DistributedCaching`, рядок підключення Aspire передає як `ConnectionStrings:redis`). DTO серіалізуються через `System.Text.Json`. Схему L1 → L2 → база з заповненням на зворотному шляху написано вручну (`Platform.Caching/TwoLevelCache`), вона спільна для Catalog, UserSkills і Matching (префікс ключів і назва Meter залежать від імені сервісу); готовий аналог у .NET — `HybridCache` (додатково захищає від одночасного перерахунку одного значення багатьма запитами й має інвалідацію за тегами), у цій роботі його не використано.
 - **Ключі й TTL** (L1 завжди коротший за L2 — це правило перевіряє конструктор `CachePolicy`):
 
 | Дані | Ключ | L1 | L2 |
@@ -752,7 +755,7 @@ curl -i http://localhost:5000/api/aggregator/skills/1/full      # картка �
 
 - **Trace:** клієнтські виклики gRPC фіксує `AddHttpClientInstrumentation`, серверні — `AddAspNetCoreInstrumentation` (атрибути `rpc.service`, `rpc.method`); spans клієнта й сервера лежать в одному trace.
 - **Логи (Serilog, структуровані):** `LoggingInterceptor` пише метод, адресу клієнта (`Peer`), статус і тривалість; логи всередині gRPC-виклику мають `Protocol=gRPC`. Cache-логи (рівень Debug у Development): `Cache hit {Key} level L1|L2`, `Cache miss`, `Cache set {Key} L1 ttl … L2 ttl … size … bytes`, `Cache invalidated {Key} reason …`.
-- **Метрики** (Dashboard → Metrics): `Catalog.Cache` — `cache.hits`, `cache.misses` (тег `cache.level` = L1/L2), `cache.hit_ratio`, `cache.l1.entries`, `cache.l1.size`, `cache.evictions`, `cache.invalidations`, `cache.operation.duration`; `Aggregator.Cache` — `cache.hits`/`cache.misses`; вбудовані метрики `Grpc.AspNetCore.Server` і `Grpc.Net.Client`. Статистика кешу також у `GET /health/cache` самого Catalog (внутрішній порт із Dashboard): hits/misses/hitRatio за рівнями L1/L2 і `l2.available`; перевірку `cache` додано й до загального `/health`.
+- **Метрики** (Dashboard → Metrics): `Catalog.Cache`, `UserSkills.Cache`, `Matching.Cache` — `cache.hits`, `cache.misses` (тег `cache.level` = L1/L2), `cache.hit_ratio`, `cache.l1.entries`, `cache.l1.size`, `cache.evictions`, `cache.invalidations`, `cache.operation.duration`; `Aggregator.Cache` — `cache.hits`/`cache.misses`; вбудовані метрики `Grpc.AspNetCore.Server` і `Grpc.Net.Client`. Статистика кешу також у `GET /health/cache` кожного з трьох сервісів (внутрішній порт із Dashboard): hits/misses/hitRatio за рівнями L1/L2 і `l2.available`; перевірку `cache` додано й до загального `/health`.
 
 ### Порівняння: HTTP (Лаб. 05) і gRPC (Лаб. 06)
 
