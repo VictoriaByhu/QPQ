@@ -1,9 +1,9 @@
 using System.Text.Json;
-using Catalog.Bll.Caching;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
-namespace Catalog.Api.Caching;
+namespace Platform.Caching;
 
 /// <summary>
 /// Статистика кешу у health check сервісу (/health): hits/misses і hit ratio за рівнями.

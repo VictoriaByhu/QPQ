@@ -4,21 +4,22 @@ using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
-namespace Catalog.Bll.Caching;
+namespace Platform.Caching;
 
 /// <summary>
 /// Ручна реалізація схеми L1 (IMemoryCache) → L2 (Redis через IDistributedCache) → база даних.
-/// DTO серіалізуються через System.Text.Json; ключі мають префікс сервісу (catalog:...).
+/// DTO серіалізуються через System.Text.Json; ключі мають префікс сервісу (catalog:..., userskills:..., matching:...).
 /// Збій Redis не валить запит: помилка логується, L2 на короткий час пропускається, дані читаються з бази.
 /// (У .NET є готовий аналог — HybridCache; ця реалізація показує механізм, порівняння — у README.)
 /// </summary>
 public sealed class TwoLevelCache(
-    IMemoryCache memory, IDistributedCache distributed, CacheMetrics metrics, ILogger<TwoLevelCache> logger)
+    IMemoryCache memory, IDistributedCache distributed, CacheMetrics metrics, CacheOptions options,
+    ILogger<TwoLevelCache> logger)
     : ITwoLevelCache
 {
     private static readonly TimeSpan L2Timeout = TimeSpan.FromMilliseconds(500);   // повільний Redis не гальмує запит
     private static readonly TimeSpan L2Cooldown = TimeSpan.FromSeconds(15);        // пауза L2 після збою
-    private const string VersionPrefix = "catalog:version:";
+    private readonly string _versionPrefix = $"{options.KeyPrefix}:version:";
 
     private long _l2DisabledUntilTick;                                             // Environment.TickCount64
     private readonly Dictionary<string, string> _localVersions = new();            // якщо Redis недоступний
@@ -91,7 +92,7 @@ public sealed class TwoLevelCache(
 
     public async Task<string> GetVersionAsync(string group, CancellationToken ct = default)
     {
-        var remote = await TryAsync(() => distributed.GetStringAsync(VersionPrefix + group, ct), "get-version", group);
+        var remote = await TryAsync(() => distributed.GetStringAsync(_versionPrefix + group, ct), "get-version", group);
         if (!string.IsNullOrEmpty(remote)) return remote;
         lock (_localVersions) return _localVersions.GetValueOrDefault(group, "0");
     }
@@ -100,7 +101,7 @@ public sealed class TwoLevelCache(
     {
         var version = DateTime.UtcNow.Ticks.ToString();                        // монотонно зростає між репліками
         lock (_localVersions) _localVersions[group] = version;
-        await TryAsync(() => distributed.SetStringAsync(VersionPrefix + group, version,
+        await TryAsync(() => distributed.SetStringAsync(_versionPrefix + group, version,
             new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(7) }, ct), "bump-version", group);
         metrics.Invalidated(reason);
         logger.LogInformation("Cache group {Group} moved to version {Version} reason {Reason}", group, version, reason);

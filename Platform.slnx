@@ -2,6 +2,7 @@
   <Folder Name="/Platform/">
     <Project Path="Platform.Aggregator/Platform.Aggregator.csproj" />
     <Project Path="Platform.ApiGateway/Platform.ApiGateway.csproj" />
+    <Project Path="Platform.Caching/Platform.Caching.csproj" />
     <Project Path="Platform.ServiceDefaults/Platform.ServiceDefaults.csproj" />
   </Folder>
   <Folder Name="/Services/" />

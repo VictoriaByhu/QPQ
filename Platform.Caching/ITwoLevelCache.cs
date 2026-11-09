@@ -1,4 +1,4 @@
-namespace Catalog.Bll.Caching;
+namespace Platform.Caching;
 
 /// <summary>
 /// Час життя запису на двох рівнях. L1 (пам'ять) має жити коротше за L2 (Redis): після оновлення в Redis

@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using Catalog.Bll.Caching;
+using Platform.Caching;
 using Catalog.Bll.Dtos;
 using Catalog.Domain.Exceptions;
 using Catalog.Bll.Services;
@@ -16,14 +17,15 @@ namespace Catalog.Tests;
 /// <summary>Двохрівневий кеш: L1 → L2 → factory, інвалідація, версії груп, стійкість до збою Redis.</summary>
 public sealed class TwoLevelCacheTests : IDisposable
 {
+    private static readonly CacheOptions Opt = new("Catalog");
     private readonly MemoryCache _memory = new(new MemoryCacheOptions { SizeLimit = 100, TrackStatistics = true });
     private readonly IDistributedCache _redis = new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions()));
     private readonly CacheMetrics _metrics;
 
-    public TwoLevelCacheTests() => _metrics = new CacheMetrics(_memory);
+    public TwoLevelCacheTests() => _metrics = new CacheMetrics(_memory, Opt);
 
     private TwoLevelCache Create(IDistributedCache? distributed = null) =>
-        new(_memory, distributed ?? _redis, _metrics, NullLogger<TwoLevelCache>.Instance);
+        new(_memory, distributed ?? _redis, _metrics, Opt, NullLogger<TwoLevelCache>.Instance);
 
     public void Dispose()
     {
@@ -132,8 +134,8 @@ public sealed class TwoLevelCacheTests : IDisposable
     public async Task L1_EvictsEntries_WhenSizeLimitIsReached()
     {
         var small = new MemoryCache(new MemoryCacheOptions { SizeLimit = 2, TrackStatistics = true });
-        using var metrics = new CacheMetrics(small);
-        var cache = new TwoLevelCache(small, _redis, metrics, NullLogger<TwoLevelCache>.Instance);
+        using var metrics = new CacheMetrics(small, Opt);
+        var cache = new TwoLevelCache(small, _redis, metrics, Opt, NullLogger<TwoLevelCache>.Instance);
 
         for (var i = 0; i < 5; i++)
             await cache.GetOrCreateAsync($"k{i}", CachePolicy.Entity, _ => Task.FromResult<Item?>(new Item(i, "x")));
@@ -147,6 +149,7 @@ public sealed class TwoLevelCacheTests : IDisposable
 /// <summary>Декоратор SkillService: читання кешуються, будь-яка зміна синхронно інвалідує кеш.</summary>
 public sealed class CachedSkillServiceTests : IDisposable
 {
+    private static readonly CacheOptions Opt = new("Catalog");
     private readonly MemoryCache _memory = new(new MemoryCacheOptions { SizeLimit = 1000 });
     private readonly CacheMetrics _metrics;
     private readonly ISkillService _inner = Substitute.For<ISkillService>();
@@ -154,9 +157,9 @@ public sealed class CachedSkillServiceTests : IDisposable
 
     public CachedSkillServiceTests()
     {
-        _metrics = new CacheMetrics(_memory);
+        _metrics = new CacheMetrics(_memory, Opt);
         var cache = new TwoLevelCache(_memory, new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions())),
-            _metrics, NullLogger<TwoLevelCache>.Instance);
+            _metrics, Opt, NullLogger<TwoLevelCache>.Instance);
         _cached = new CachedSkillService(_inner, cache);
     }
 

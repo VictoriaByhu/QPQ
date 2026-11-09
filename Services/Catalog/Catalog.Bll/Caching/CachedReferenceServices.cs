@@ -1,3 +1,4 @@
+using Platform.Caching;
 using Catalog.Bll.Dtos;
 using Catalog.Bll.Services;
 

@@ -1,3 +1,4 @@
+using Platform.Caching;
 using System.Security.Cryptography;
 using System.Text;
 using Catalog.Bll.Dtos;

@@ -1,5 +1,6 @@
 using System.Reflection;
 using Catalog.Api.Caching;
+using Platform.Caching;
 using Catalog.Api.Grpc;
 using Catalog.Api.Middleware;
 using Catalog.Bll.Caching;
@@ -34,20 +35,8 @@ builder.AddGrpcServerDefaults();
 builder.Services.AddDbContext<CatalogDbContext>(o => o.UseSqlServer(connectionString));
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
-// Кешування (Лаб. 06). L1 — IMemoryCache з обмеженням розміру (кожен запис має Size, найстаріші витісняються
-// за пріоритетом і терміном життя); L2 — Redis через Aspire (ресурс "redis" в AppHost -> ConnectionStrings:redis).
-// Без рядка підключення (запуск поза Aspire, тести) L2 замінює локальний IDistributedCache у пам'яті.
-builder.Services.AddMemoryCache(o =>
-{
-    o.SizeLimit = 10_000;                       // у «одиницях» Size записів
-    o.TrackStatistics = true;                   // для метрик розміру L1 і health check
-});
-if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("redis")))
-    builder.AddRedisDistributedCache("redis");
-else
-    builder.Services.AddDistributedMemoryCache();
-builder.Services.AddSingleton<CacheMetrics>();
-builder.Services.AddSingleton<ITwoLevelCache, TwoLevelCache>();
+// Кешування (Лаб. 06): L1 IMemoryCache + L2 Redis зі спільної бібліотеки Platform.Caching (ресурс "redis" в AppHost).
+builder.AddTwoLevelCache("Catalog");
 
 // BLL: сервіси, AutoMapper і валідатори FluentValidation (викликаються явно в контролерах).
 // Кожен сервіс обгорнутий декоратором з кешем: контролери й gRPC залежать від інтерфейсу й не знають про кеш.
@@ -62,7 +51,6 @@ builder.Services.AddScoped<ITagService>(sp =>
     new CachedTagService(sp.GetRequiredService<TagService>(), sp.GetRequiredService<ITwoLevelCache>()));
 
 builder.Services.AddHostedService<CacheWarmupService>();
-builder.Services.AddHealthChecks().AddCheck<CacheHealthCheck>("cache");   // статистика кешу в /health
 
 builder.Services.AddAutoMapper(cfg =>
 {
@@ -123,11 +111,7 @@ if (app.Environment.IsDevelopment())
 app.MapControllers();
 app.MapGrpcService<CatalogGrpcService>();       // gRPC (HTTP/2) для Aggregator; REST лишається для зовнішніх клієнтів
 app.MapDefaultEndpoints();
-app.MapHealthChecks("/health/cache", new HealthCheckOptions
-{
-    Predicate = r => r.Name == "cache",
-    ResponseWriter = (http, report) => CacheHealthCheck.WriteResponse(http, report)      // hits/misses/hitRatio за рівнями
-});
+app.MapCacheHealth();                           // GET /health/cache: hits/misses/hitRatio за рівнями
 
 app.Run();
 

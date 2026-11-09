@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Спільний двохрівневий кеш сервісів платформи: L1 (IMemoryCache) + L2 (Redis через IDistributedCache),
+       метрики, версійована інвалідація, health check. Кожен сервіс підключає його одним викликом AddTwoLevelCache. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.StackExchange.Redis.DistributedCaching" Version="13.6.4" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.*" />
+  </ItemGroup>
+
+</Project>

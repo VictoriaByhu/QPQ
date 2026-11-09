@@ -1,26 +1,26 @@
 using System.Diagnostics.Metrics;
 using Microsoft.Extensions.Caching.Memory;
 
-namespace Catalog.Bll.Caching;
+namespace Platform.Caching;
 
 /// <summary>
-/// Власні метрики кешу (Meter "Catalog.Cache", підключений у ServiceDefaults): лічильники попадань/промахів
+/// Власні метрики кешу (Meter "<Сервіс>.Cache", підключений у ServiceDefaults): лічильники попадань/промахів
 /// окремо для рівнів L1 (пам'ять) і L2 (Redis), інвалідацій і витіснень, гістограма тривалості операцій,
 /// розмір L1 і hit ratio за рівнями. У Aspire Dashboard вони з'являються на вкладці Metrics.
 /// </summary>
 public sealed class CacheMetrics : IDisposable
 {
-    public const string MeterName = "Catalog.Cache";
     public const string L1 = "L1";
     public const string L2 = "L2";
 
-    private readonly Meter _meter = new(MeterName);
+    private readonly Meter _meter;
     private readonly Counter<long> _hits, _misses, _invalidations, _evictions;
     private readonly Histogram<double> _duration;
     private readonly long[] _hitCounts = new long[2], _missCounts = new long[2];   // для hit ratio й health check
 
-    public CacheMetrics(IMemoryCache memory)
+    public CacheMetrics(IMemoryCache memory, CacheOptions options)
     {
+        _meter = new Meter(options.MeterName);
         _hits = _meter.CreateCounter<long>("cache.hits", description: "Cache hits by level");
         _misses = _meter.CreateCounter<long>("cache.misses", description: "Cache misses by level");
         _invalidations = _meter.CreateCounter<long>("cache.invalidations", description: "Cache invalidations by reason");
