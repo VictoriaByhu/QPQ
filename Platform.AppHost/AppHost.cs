@@ -84,23 +84,27 @@ var matching = builder.AddProject<Projects.Matching_WebApi>("matching-api")
     .WithHttpEndpoint(name: "grpc", env: "GRPC_PORT")
     .WithHttpHealthCheck("/health");
 
-// ── Aggregator → Gateway: порядок запуску БД → сервіси → Aggregator → Gateway задається ланцюжками WaitFor ──
+// ── Aggregator → Gateway: порядок запуску БД/Redis → сервіси → Aggregator → Gateway задається ланцюжками WaitFor ──
+// Правило: кожне WithReference (передає адресу/рядок підключення) має пару WaitFor (чекає на health check ресурсу).
+//   БД, Redis ─► userskills-api, catalog-api, matching-api ─► aggregator ─► gateway (порт 5000)
 // Aggregator викликає сервіси через gRPC (endpoint "grpc"), кешує зібрані відповіді в Redis; для зовнішніх клієнтів лишається HTTP.
 var aggregator = builder.AddProject<Projects.Platform_Aggregator>("aggregator")
     .WithHttpEndpoint()                                                   // порт призначає Aspire; знаходиться за іменем "aggregator"
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", builder.Environment.EnvironmentName)
-    .WithReference(userSkills).WithReference(catalog).WithReference(matching)
-    .WithReference(redis)
-    .WaitFor(userSkills).WaitFor(catalog).WaitFor(matching).WaitFor(redis)
+    .WithReference(userSkills).WaitFor(userSkills)
+    .WithReference(catalog).WaitFor(catalog)
+    .WithReference(matching).WaitFor(matching)
+    .WithReference(redis).WaitFor(redis)
     .WithHttpHealthCheck("/health");
 
 builder.AddProject<Projects.Platform_ApiGateway>("gateway")
     .WithHttpEndpoint(port: 5000, name: "public")                         // єдина точка входу для клієнтів
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", builder.Environment.EnvironmentName)
     .WithExternalHttpEndpoints()
-    .WithReference(userSkills).WithReference(catalog).WithReference(matching)
-    .WithReference(aggregator)
-    .WaitFor(aggregator)
+    .WithReference(userSkills).WaitFor(userSkills)
+    .WithReference(catalog).WaitFor(catalog)
+    .WithReference(matching).WaitFor(matching)
+    .WithReference(aggregator).WaitFor(aggregator)
     .WithHttpHealthCheck("/health", endpointName: "public");
 
 builder.Build().Run();
