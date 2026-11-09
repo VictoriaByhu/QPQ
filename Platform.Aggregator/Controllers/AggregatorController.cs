@@ -8,16 +8,16 @@ namespace Platform.Aggregator.Controllers;
 [Route("api/aggregator")]
 public sealed class AggregatorController(ISkillAggregationService aggregation) : ControllerBase
 {
-    /// <summary>Повна картка навички: довідник + записи користувачів + статистика пошуку пар.</summary>
+    /// <summary>Повна картка навички: довідник + записи користувачів + статистика пошуку пар. refresh=true обходить кеш Redis.</summary>
     [HttpGet("skills/{id:int}/full")]
     [ProducesResponseType<FullSkillDto>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
-    public async Task<ActionResult<FullSkillDto>> GetFullSkill(int id, CancellationToken ct)
+    public async Task<ActionResult<FullSkillDto>> GetFullSkill(int id, CancellationToken ct, [FromQuery] bool refresh = false)
     {
         try
         {
-            var result = await aggregation.GetFullSkillAsync(id, ct);
+            var result = await aggregation.GetFullSkillAsync(id, ct, refresh);
             return result is null
                 ? NotFound(new ProblemDetails { Status = 404, Title = "Skill not found", Detail = $"Skill {id} does not exist in catalog-api." })
                 : Ok(result);

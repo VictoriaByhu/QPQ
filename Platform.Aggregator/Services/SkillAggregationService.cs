@@ -9,7 +9,8 @@ namespace Platform.Aggregator.Services;
 
 public interface ISkillAggregationService
 {
-    Task<FullSkillDto?> GetFullSkillAsync(int skillId, CancellationToken ct);
+    /// <param name="refresh">true — не читати кеш, а зібрати відповідь заново (результат усе одно записується в кеш).</param>
+    Task<FullSkillDto?> GetFullSkillAsync(int skillId, CancellationToken ct, bool refresh = false);
 }
 
 /// <summary>Основний сервіс (довідник) недоступний — картку навички зібрати неможливо (контролер віддасть 503).</summary>
@@ -35,14 +36,14 @@ public sealed class SkillAggregationService(
     private static readonly ActivitySource Source = new("Platform.Aggregator");
     private static readonly TimeSpan CallDeadline = TimeSpan.FromSeconds(3);
 
-    public async Task<FullSkillDto?> GetFullSkillAsync(int skillId, CancellationToken ct)
+    public async Task<FullSkillDto?> GetFullSkillAsync(int skillId, CancellationToken ct, bool refresh = false)
     {
         using var activity = Source.StartActivity("GetFullSkill");
         activity?.SetTag("skill.id", skillId);
 
         // Кеш перевіряється ДО паралельних gRPC-викликів.
         var key = AggregateCache.SkillKey(skillId);
-        var cached = await cache.GetAsync<FullSkillDto>(key, ct);
+        var cached = refresh ? null : await cache.GetAsync<FullSkillDto>(key, ct);
         if (cached is not null)
         {
             activity?.SetTag("cache.hit", true);
