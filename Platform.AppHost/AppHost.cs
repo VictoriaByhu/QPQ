@@ -17,10 +17,9 @@ var localSqlNeeded = !IsExternal("UserSkillsDb") || !IsExternal("CatalogDb");
 IResourceBuilder<SqlServerServerResource>? sql = null;
 if (localSqlNeeded)
 {
-    // Пароль SQL Server — секрет AppHost: dotnet user-secrets set "Parameters:sql-password" "<пароль>"
-    // (або вводиться в Dashboard під час першого запуску). У репозиторії паролів немає.
-    var sqlPassword = builder.AddParameter("sql-password", secret: true);
-    sql = builder.AddSqlServer("sql", sqlPassword).WithDataVolume();
+    // Пароль SQL Server Aspire генерує сам під час першого запуску й зберігає в User Secrets AppHost на цій машині
+    // (Parameters:sql-password) — клонувати й запускати можна без жодних налаштувань. Власний пароль можна задати там само.
+    sql = builder.AddSqlServer("sql").WithDataVolume();
 }
 
 // Ім'я ресурсу = ім'я рядка підключення в сервісі (ConnectionStrings:<ім'я>), друге значення — ім'я бази на сервері.
