@@ -67,6 +67,7 @@ var redis = builder.AddRedis("redis").WithDataVolume();
 // через ALPN, тому REST (HTTP/1.1) і gRPC (h2c) слухають різні порти; порт gRPC сервіс бере зі змінної GRPC_PORT.
 var userSkills = builder.AddProject<Projects.UserSkills_Api>("userskills-api")
     .WithReference(userSkillsDb).WaitFor(userSkillsDb)
+    .WithReference(redis).WaitFor(redis)
     .WithHttpEndpoint(name: "grpc", env: "GRPC_PORT")
     .WithHttpHealthCheck("/health");
 
@@ -78,6 +79,7 @@ var catalog = builder.AddProject<Projects.Catalog_Api>("catalog-api")
 
 var matching = builder.AddProject<Projects.Matching_WebApi>("matching-api")
     .WithReference(matchingDb).WaitFor(matchingDb)
+    .WithReference(redis).WaitFor(redis)
     .WithEnvironment("Database__Seed", IsExternal("MatchingDb") ? "false" : "true")   // демо-дані лише для локальної бази
     .WithHttpEndpoint(name: "grpc", env: "GRPC_PORT")
     .WithHttpHealthCheck("/health");

@@ -99,7 +99,7 @@ public static class Extensions
                 .AddHttpClientInstrumentation()
                 .AddRuntimeInstrumentation()
                 .AddMeter("Grpc.AspNetCore.Server", "Grpc.Net.Client")   // вбудовані метрики gRPC (виклики, тривалість)
-                .AddMeter("Catalog.Cache", "Aggregator.Cache"))          // власні метрики кешу: hits/misses, розмір, інвалідації
+                .AddMeter("Catalog.Cache", "UserSkills.Cache", "Matching.Cache", "Aggregator.Cache"))          // власні метрики кешу: hits/misses, розмір, інвалідації
             .WithTracing(t =>
             {
                 // 100 % у Development, налаштований відсоток у Production (Telemetry:SamplingRatio).
