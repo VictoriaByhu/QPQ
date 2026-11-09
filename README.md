@@ -698,3 +698,89 @@ curl -i http://localhost:5000/api/aggregator/skills/1/full      # картка �
 - `/api/skills` належить Catalog; однойменний довідниковий ендпоінт UserSkills (`/api/skills`) через Gateway недоступний, зате доступні `/api/user-skills/*` і `/api/languages`.
 - Resilience-політики (`AddStandardResilienceHandler`) налаштовано коротко (2 с на спробу, 5 с загалом), щоб недоступний сервіс швидко ставав попередженням; детально — Лаб. 07.
 - Сервіси на HTTP, сертифікати dev-середовища не потрібні (`ASPIRE_ALLOW_UNSECURED_TRANSPORT=true` для профілю `http`).
+
+## Лаб. 06: gRPC і кешування (IMemoryCache + Redis)
+
+Платформу з Лаб. 05 розширено двома речами: **кешуванням** довідника Catalog (L1 — `IMemoryCache`, L2 — Redis) і **gRPC** для внутрішніх викликів: Aggregator тепер викликає сервіси через типізовані gRPC-клієнти, а для зовнішніх клієнтів REST лишається без змін (JSON-відповідь Aggregator не змінилась).
+
+```
+Клієнт ─► gateway ─► aggregator ──(Redis: aggregator:skill:{id}:full, TTL 30 с)
+ (HTTP)                  └─ Task.WhenAll, gRPC / HTTP/2 ─► catalog-api     CatalogService.GetSkill      ─► L1 ─► L2 (Redis) ─► SQL
+                                                        ├─► userskills-api UserSkillsService.ListBySkill ─► SQL
+                                                        └─► matching-api   MatchingService.GetSkillStats ─► MongoDB
+```
+
+### Що де лежить
+
+| Частина | Файли |
+|---|---|
+| Redis і gRPC-endpoint'и в оркестрації | `Platform.AppHost/AppHost.cs` — `AddRedis("redis").WithDataVolume()`, `WithReference(redis)`, `WaitFor`, endpoint `grpc` (`env: GRPC_PORT`) |
+| gRPC-сервер, `LoggingInterceptor`, метрики | `Platform.ServiceDefaults/Grpc/*`, `Extensions.cs` (meter `Catalog.Cache`, `Aggregator.Cache`, `Grpc.*`) |
+| Двохрівневий кеш Catalog | `Services/Catalog/Catalog.Bll/Caching/*` (`TwoLevelCache`, `CachedSkillService`, `CachedReferenceServices`, `CacheMetrics`) |
+| Health check і прогрівання кешу | `Services/Catalog/Catalog.Api/Caching/*` |
+| `.proto`-контракти | `Services/Catalog/Catalog.Api/Protos/catalog.proto`, `Services/UserSkills/UserSkills.Api/Protos/userskills.proto`, `Services/Matching/Matching.WebApi/Protos/matching.proto` |
+| gRPC-сервіси | `*/Grpc/CatalogGrpcService.cs`, `UserSkillsGrpcService.cs`, `MatchingGrpcService.cs` — адаптери над бізнес-логікою Лаб. 02–04 |
+| gRPC-клієнти Aggregator | `Platform.Aggregator/Program.cs` (`AddGrpcClient`), `Services/SkillAggregationService.cs`, `Services/AggregateCache.cs` |
+
+### Кешування
+
+- **Cache-aside** у декораторах над сервісами Catalog: `CachedSkillService`, `CachedCategoryService`, `CachedTagService`. Контролери й gRPC залежать від `ISkillService` і не знають про кеш, тому **REST і gRPC користуються одним кешем** без дублювання коду. Реєстрація — у `Program.cs`.
+- **L1** — `IMemoryCache` із `SizeLimit = 10 000` (кожен запис має `Size`), absolute і sliding expiration, лічильник витіснень. **L2** — `IDistributedCache` поверх Redis (пакет `Aspire.StackExchange.Redis.DistributedCaching`, рядок підключення Aspire передає як `ConnectionStrings:redis`). DTO серіалізуються через `System.Text.Json`. Схему L1 → L2 → база з заповненням на зворотному шляху написано вручну (`TwoLevelCache`); готовий аналог у .NET — `HybridCache` (додатково захищає від одночасного перерахунку одного значення багатьма запитами й має інвалідацію за тегами), у цій роботі його не використано.
+- **Ключі й TTL** (L1 завжди коротший за L2 — це правило перевіряє конструктор `CachePolicy`):
+
+| Дані | Ключ | L1 | L2 |
+|---|---|---|---|
+| Картка навички | `catalog:skill:{id}` | 2 хв (sliding 45 с) | 10 хв |
+| Сторінка списку навичок | `catalog:skills:list:{версія}:{хеш запиту}` | 30 с | 2 хв |
+| Теги, категорії (довідники) | `catalog:tags:all`, `catalog:category:{id}`, `catalog:categories:list:…` | 2 хв | 30 хв |
+| Картка навички в Aggregator | `aggregator:skill:{id}:full` | — | 30 с (коротше за кеші сервісів) |
+
+- **Інвалідація синхронна з записом:** після `SaveChanges` видаляється ключ картки (L1 і Redis); списки переводяться на нову версію групи (`catalog:version:skills-list`) — старі сторінки просто перестають читатися. Зміна категорії інвалідує й картки її навичок (у них є назва категорії). Причину кожної інвалідації видно в логах (`reason`) і в метриці `cache.invalidations`.
+- **Стійкість до збою Redis:** виняток або таймаут (500 мс) на L2 не валить запит — сервіс читає з L1 і бази, а L2 пропускається 15 с, щоб не гальмувати кожен виклик; `/health/cache` після першого збою L2 показує `Degraded` (`l2.available: false`). Health check Redis від Aspire при цьому робить загальний `/health` нездоровим (503), тому в Dashboard ресурс може позначитись як unhealthy, хоча сервіс відповідає. Aggregator у такому разі збирає відповідь заново. Часткову відповідь Aggregator (`warnings` не порожні) не кешує.
+- **Прогрівання:** `CacheWarmupService` на старті й кожні 5 хв завантажує теги, категорії, першу сторінку навичок і їх картки (`Cache:Warmup:Enabled=false` вимикає).
+- **Обмеження:** L1 однієї репліки не оновлюється при зміні даних на іншій реплікі — застаріла копія живе до кінця L1 TTL (максимум 2 хв); списки цього не мають, бо версія читається з Redis. Оновлення L1 через Redis pub/sub (необов'язковий пункт) не реалізовано.
+
+### gRPC
+
+- **Контракти** (`.proto`): package за предметною областю, `option csharp_namespace`, коментарі, нумерація полів; **номери полів після публікації не змінюються**. У сервісі проєкт підключає `<Protobuf Include="Protos\…" GrpcServices="Server" />`, в Aggregator — ті самі файли за відносним шляхом із `GrpcServices="Client"`.
+- **Сервіси** перетворюють доменні моделі на повідомлення, а винятки — на `RpcException` зі статусом: відсутня сутність → `NotFound`, некоректні параметри → `InvalidArgument` (не загальний `Internal`).
+- **HTTP/2 без TLS:** узгодження протоколу через ALPN потребує TLS, тому кожен сервіс слухає **два порти** — REST (HTTP/1.1) і окремий gRPC-endpoint `grpc` лише з HTTP/2. AppHost оголошує endpoint (`WithHttpEndpoint(name: "grpc", env: "GRPC_PORT")`), `AddGrpcServerDefaults()` у ServiceDefaults підіймає Kestrel-listener на цьому порту. Без `GRPC_PORT` (запуск поза AppHost) конфігурація Kestrel не змінюється.
+- **Клієнти Aggregator:** `AddGrpcClient<…>(o => o.Address = new Uri("http://_grpc.catalog-api"))` — префікс `_grpc.` вибирає іменований endpoint при service discovery. Клієнти створює та сама фабрика `HttpClient`, тому resilience, service discovery і `CorrelationIdHandler` з ServiceDefaults діють і для gRPC (`X-Correlation-Id` іде в метаданих виклику). Три виклики йдуть паралельно (`Task.WhenAll`) із `CancellationToken` і deadline 3 с; недоступність userskills/matching (`Unavailable`, `DeadlineExceeded`) дає часткову відповідь із `warnings`, недоступність catalog — `503`.
+- **Новий параметр:** `GET /api/aggregator/skills/{id}/full?refresh=true` обходить кеш Redis і збирає відповідь заново (корисно для порівняння й трасування).
+
+### Обсервабіліті
+
+- **Trace:** клієнтські виклики gRPC фіксує `AddHttpClientInstrumentation`, серверні — `AddAspNetCoreInstrumentation` (атрибути `rpc.service`, `rpc.method`); spans клієнта й сервера лежать в одному trace.
+- **Логи (Serilog, структуровані):** `LoggingInterceptor` пише метод, адресу клієнта (`Peer`), статус і тривалість; логи всередині gRPC-виклику мають `Protocol=gRPC`. Cache-логи (рівень Debug у Development): `Cache hit {Key} level L1|L2`, `Cache miss`, `Cache set {Key} L1 ttl … L2 ttl … size … bytes`, `Cache invalidated {Key} reason …`.
+- **Метрики** (Dashboard → Metrics): `Catalog.Cache` — `cache.hits`, `cache.misses` (тег `cache.level` = L1/L2), `cache.hit_ratio`, `cache.l1.entries`, `cache.l1.size`, `cache.evictions`, `cache.invalidations`, `cache.operation.duration`; `Aggregator.Cache` — `cache.hits`/`cache.misses`; вбудовані метрики `Grpc.AspNetCore.Server` і `Grpc.Net.Client`. Статистика кешу також у `GET /health/cache` самого Catalog (внутрішній порт із Dashboard): hits/misses/hitRatio за рівнями L1/L2 і `l2.available`; перевірку `cache` додано й до загального `/health`.
+
+### Порівняння: HTTP (Лаб. 05) і gRPC (Лаб. 06)
+
+Запит `GET /api/aggregator/skills/{id}/full` через Gateway, локально (Linux, SQL Server/MongoDB/Redis у контейнерах), 200 послідовних запитів по навичках 1–6 після прогріву (30 запитів):
+
+| Варіант | середнє | p50 | p95 |
+|---|---|---|---|
+| Лаб. 05: HTTP, без кешів | 8.2 мс | 7.8 мс | 9.6 мс |
+| Лаб. 06: gRPC, без кешу Aggregator (`refresh=true`), кеш Catalog L1+L2 | 7.5 мс | 7.1 мс | 10.3 мс |
+| Лаб. 06: gRPC + кеш Aggregator у Redis | 3.5 мс | 3.3 мс | 4.5 мс |
+
+Висновок за цими вимірами: на одній машині з крихітними повідомленнями сам перехід на gRPC дає небагато (≈9 % у середньому, p95 навіть трохи гірший — різниця в межах похибки); основний виграш дає кешування (−57 % у середньому). Переваги gRPC — типобезпечні контракти, компактний бінарний формат, мультиплексування викликів в одному HTTP/2-з'єднанні — проявляються на мережі з затримкою та на великих або частих повідомленнях. Для порівняння на вашій машині: той самий запит у Traces до й після (Лаб. 05 — гілка `lab-05-OV`).
+
+### Перевірка (контрольні точки)
+
+```
+curl -s http://localhost:5000/api/skills/1 >/dev/null; curl -s http://localhost:5000/api/skills/1 >/dev/null
+#   Traces: у trace другого запиту немає SQL-spans; Structured logs: "Cache hit catalog:skill:1 level L1"
+curl -i http://localhost:5000/api/aggregator/skills/1/full                  # перший запит — збирає з трьох сервісів по gRPC
+curl -i http://localhost:5000/api/aggregator/skills/1/full                  # другий — з Redis (Structured logs: "Aggregate cache hit")
+curl -i "http://localhost:5000/api/aggregator/skills/1/full?refresh=true"   # завжди збирає заново
+```
+
+- **PUT і кеш:** змініть навичку (`PUT /api/skills/{id}` із `rowVersion` з останнього GET) — наступний `GET` повертає нові дані (і картка, і список), у логах `Cache invalidated … reason SkillUpdated`.
+- **Зупинка Redis:** зупиніть контейнер `redis` у Dashboard — Catalog і Aggregator відповідають далі (перший запит повільніший через таймаут L2 500 мс), у логах попередження `Distributed cache … failed`, `/health/cache` → `Degraded`. Після запуску Redis кеш відновлюється сам (пауза L2 — 15 с).
+- **gRPC-статуси:** неіснуюча навичка (`/api/aggregator/skills/99999/full`) → `404` (Catalog повернув `NotFound`); тести перевіряють `NotFound` і `InvalidArgument` на самому gRPC-рівні.
+- **Часткова відповідь:** зупиніть `userskills-api` або `matching-api` — `200` з `warnings`; зупиніть `catalog-api` — `503`.
+- **Зворотна сумісність контракту:** змініть номер поля в `.proto` лише на сервері (наприклад, `name = 2` → `name = 12`), перезберіть — клієнт перестає коректно читати це поле; поверніть номер назад.
+- **Скріншоти для здачі:** trace повторного запиту без SQL-span; trace агрегувального запиту із gRPC-spans клієнта й сервера в одному trace; метрика `cache.hits` (Metrics → `Catalog.Cache`).
+
+Тести: `dotnet test Services/Catalog/Catalog.Tests` — 63 тести, з них нові: двохрівневий кеш (L1/L2, інвалідація, версії груп, збій Redis, витіснення за `SizeLimit`), декоратори (повторне читання без бази, свіжі дані після зміни), наскрізний PUT → GET і gRPC-контракт (`NotFound`, `InvalidArgument`, спільний кеш із REST).
