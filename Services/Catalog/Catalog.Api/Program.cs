@@ -1,5 +1,8 @@
 using System.Reflection;
+using Catalog.Api.Caching;
+using Catalog.Api.Grpc;
 using Catalog.Api.Middleware;
+using Catalog.Bll.Caching;
 using Catalog.Bll.Mapping;
 using Catalog.Bll.Services;
 using Catalog.Bll.Validators;
@@ -9,6 +12,7 @@ using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using Platform.ServiceDefaults.Correlation;
+using Platform.ServiceDefaults.Grpc;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -22,14 +26,42 @@ var connectionString = builder.Configuration.GetConnectionString("CatalogDb")
 // SQL-команди EF Core вмикаються в appsettings.Development.json (Serilog:MinimumLevel:Override).
 builder.AddServiceDefaults();
 
+// gRPC-сервер (Лаб. 06): AddGrpc + LoggingInterceptor і окремий HTTP/2-endpoint, порт якого дає AppHost (GRPC_PORT).
+builder.AddGrpcServerDefaults();
+
 // DAL: DbContext і Unit of Work (один контекст на HTTP-запит).
 builder.Services.AddDbContext<CatalogDbContext>(o => o.UseSqlServer(connectionString));
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
+// Кешування (Лаб. 06). L1 — IMemoryCache з обмеженням розміру (кожен запис має Size, найстаріші витісняються
+// за пріоритетом і терміном життя); L2 — Redis через Aspire (ресурс "redis" в AppHost -> ConnectionStrings:redis).
+// Без рядка підключення (запуск поза Aspire, тести) L2 замінює локальний IDistributedCache у пам'яті.
+builder.Services.AddMemoryCache(o =>
+{
+    o.SizeLimit = 10_000;                       // у «одиницях» Size записів
+    o.TrackStatistics = true;                   // для метрик розміру L1 і health check
+});
+if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("redis")))
+    builder.AddRedisDistributedCache("redis");
+else
+    builder.Services.AddDistributedMemoryCache();
+builder.Services.AddSingleton<CacheMetrics>();
+builder.Services.AddSingleton<ITwoLevelCache, TwoLevelCache>();
+
 // BLL: сервіси, AutoMapper і валідатори FluentValidation (викликаються явно в контролерах).
-builder.Services.AddScoped<ISkillService, SkillService>();
-builder.Services.AddScoped<ICategoryService, CategoryService>();
-builder.Services.AddScoped<ITagService, TagService>();
+// Кожен сервіс обгорнутий декоратором з кешем: контролери й gRPC залежать від інтерфейсу й не знають про кеш.
+builder.Services.AddScoped<SkillService>();
+builder.Services.AddScoped<ISkillService>(sp =>
+    new CachedSkillService(sp.GetRequiredService<SkillService>(), sp.GetRequiredService<ITwoLevelCache>()));
+builder.Services.AddScoped<CategoryService>();
+builder.Services.AddScoped<ICategoryService>(sp =>
+    new CachedCategoryService(sp.GetRequiredService<CategoryService>(), sp.GetRequiredService<ITwoLevelCache>()));
+builder.Services.AddScoped<TagService>();
+builder.Services.AddScoped<ITagService>(sp =>
+    new CachedTagService(sp.GetRequiredService<TagService>(), sp.GetRequiredService<ITwoLevelCache>()));
+
+builder.Services.AddHostedService<CacheWarmupService>();
+builder.Services.AddHealthChecks().AddCheck<CacheHealthCheck>("cache");   // статистика кешу в /health
 
 builder.Services.AddAutoMapper(cfg =>
 {
@@ -88,6 +120,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapControllers();
+app.MapGrpcService<CatalogGrpcService>();       // gRPC (HTTP/2) для Aggregator; REST лишається для зовнішніх клієнтів
 app.MapDefaultEndpoints();
 
 app.Run();

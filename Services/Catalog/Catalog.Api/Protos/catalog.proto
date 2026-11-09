@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+// Namespace не збігається з Catalog.* навмисно: інакше "Grpc.Core" усередині Catalog.* вказувало б не туди.
+option csharp_namespace = "Catalog.GrpcContracts";
+
+package catalog;
+
+// Читання довідника навичок для внутрішніх сервісів (Aggregator). Той самий ISkillService (із кешем), що й у REST.
+service CatalogService {
+  // Навичка з категорією, рівнями й тегами. Немає навички -> NotFound, Id <= 0 -> InvalidArgument.
+  rpc GetSkill (GetSkillRequest) returns (SkillReply);
+
+  // Кілька навичок за одним викликом; відсутні Id пропускаються (до 100 Id).
+  rpc GetSkillsByIds (GetSkillsByIdsRequest) returns (SkillsReply);
+}
+
+message GetSkillRequest {
+  int32 id = 1;
+}
+
+message GetSkillsByIdsRequest {
+  repeated int32 ids = 1;
+}
+
+// Номери полів не змінюються після публікації: саме вони, а не імена, визначають бінарний формат.
+message SkillReply {
+  int32 id = 1;
+  string name = 2;
+  string slug = 3;
+  int32 category_id = 4;
+  string category_name = 5;
+  optional string description = 6;
+  optional string icon_url = 7;
+  repeated SkillLevel levels = 8;
+  repeated string tags = 9;
+}
+
+message SkillLevel {
+  int32 level = 1;
+  string title = 2;
+  optional string description = 3;
+}
+
+message SkillsReply {
+  repeated SkillReply skills = 1;
+}
