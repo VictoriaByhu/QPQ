@@ -1,34 +1,60 @@
 using Aspire.Hosting.ApplicationModel;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
-// ── Бази даних (контейнери; дані зберігаються між перезапусками завдяки WithDataVolume) ──────────
-// Пароль SQL Server — секрет AppHost: dotnet user-secrets set "Parameters:sql-password" "<пароль>"
-// (або вводиться в Dashboard під час першого запуску). У репозиторії паролів немає.
-var sqlPassword = builder.AddParameter("sql-password", secret: true);
-var sql = builder.AddSqlServer("sql", sqlPassword).WithDataVolume();
+// ── Бази даних ───────────────────────────────────────────────────────────────────────────────
+// За замовчуванням усе працює локально: SQL Server і MongoDB піднімаються в контейнерах (WithDataVolume —
+// дані зберігаються між перезапусками), нічого налаштовувати не потрібно, окрім пароля SQL Server.
+// Щоб перемкнути КОНКРЕТНУ базу на віддалений сервер, задайте її рядок підключення в User Secrets AppHost:
+//   dotnet user-secrets set "ConnectionStrings:UserSkillsDb" "<рядок підключення>" --project Platform.AppHost
+//   (так само CatalogDb і MatchingDb). Без секрету використовується локальний контейнер.
+bool IsExternal(string name) => !string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString(name));
+
+var localSqlNeeded = !IsExternal("UserSkillsDb") || !IsExternal("CatalogDb");
+IResourceBuilder<SqlServerServerResource>? sql = null;
+if (localSqlNeeded)
+{
+    // Пароль SQL Server — секрет AppHost: dotnet user-secrets set "Parameters:sql-password" "<пароль>"
+    // (або вводиться в Dashboard під час першого запуску). У репозиторії паролів немає.
+    var sqlPassword = builder.AddParameter("sql-password", secret: true);
+    sql = builder.AddSqlServer("sql", sqlPassword).WithDataVolume();
+}
 
 // Ім'я ресурсу = ім'я рядка підключення в сервісі (ConnectionStrings:<ім'я>), друге значення — ім'я бази на сервері.
-var userSkillsDb = sql.AddDatabase("UserSkillsDb", "QPQ_UserSkills");   // Лаб. 02: ADO.NET + Dapper
-var catalogDb = sql.AddDatabase("CatalogDb", "QPQ_CatalogEf");           // Лаб. 03: EF Core (міграції самі створюють схему)
-
-var mongo = builder.AddMongoDB("mongo").WithDataVolume();
-var matchingDb = mongo.AddDatabase("MatchingDb", "QPQ_Matching");         // Лаб. 04: MongoDB
-
-// UserSkills працює з T-SQL-схемою та збереженими процедурами (db/p1) — застосовуємо їх, щойно база створена.
-var scriptsDir = Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "..", "db", "p1"));
-builder.Eventing.Subscribe<ResourceReadyEvent>(userSkillsDb.Resource, async (e, ct) =>
+IResourceBuilder<IResourceWithConnectionString> userSkillsDb;                 // Лаб. 02: ADO.NET + Dapper
+if (IsExternal("UserSkillsDb"))
 {
-    var logger = e.Services.GetRequiredService<ResourceLoggerService>().GetLogger(userSkillsDb.Resource);
-    var connectionString = await userSkillsDb.Resource.ConnectionStringExpression.GetValueAsync(ct)
-        ?? throw new InvalidOperationException("UserSkillsDb connection string is not available");
+    userSkillsDb = builder.AddConnectionString("UserSkillsDb");               // віддалений сервер: схема вже розгорнута (db/p1)
+}
+else
+{
+    var local = sql!.AddDatabase("UserSkillsDb", "QPQ_UserSkills");
+    userSkillsDb = local;
 
-    await SqlScriptRunner.RunAsync(connectionString,
-        new[] { "userskills.schema.sql", "userskills.procedures.sql", "userskills.seed.sql" }
-            .Select(f => Path.Combine(scriptsDir, f)), logger, ct);
-});
+    // UserSkills працює з T-SQL-схемою та збереженими процедурами (db/p1) — застосовуємо їх, щойно база створена.
+    var scriptsDir = Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "..", "db", "p1"));
+    builder.Eventing.Subscribe<ResourceReadyEvent>(local.Resource, async (e, ct) =>
+    {
+        var logger = e.Services.GetRequiredService<ResourceLoggerService>().GetLogger(local.Resource);
+        var connectionString = await local.Resource.ConnectionStringExpression.GetValueAsync(ct)
+            ?? throw new InvalidOperationException("UserSkillsDb connection string is not available");
+
+        await SqlScriptRunner.RunAsync(connectionString,
+            new[] { "userskills.schema.sql", "userskills.procedures.sql", "userskills.seed.sql" }
+                .Select(f => Path.Combine(scriptsDir, f)), logger, ct);
+    });
+}
+
+IResourceBuilder<IResourceWithConnectionString> catalogDb = IsExternal("CatalogDb")   // Лаб. 03: EF Core
+    ? builder.AddConnectionString("CatalogDb")                                         // міграції застосує сам Catalog.Api
+    : sql!.AddDatabase("CatalogDb", "QPQ_CatalogEf");
+
+IResourceBuilder<IResourceWithConnectionString> matchingDb = IsExternal("MatchingDb") // Лаб. 04: MongoDB
+    ? builder.AddConnectionString("MatchingDb")
+    : builder.AddMongoDB("mongo").WithDataVolume().AddDatabase("MatchingDb", "QPQ_Matching");
 
 // ── Мікросервіси з Лаб. 02–04: лише WithReference(БД) — порти й рядки підключення призначає Aspire ──
 var userSkills = builder.AddProject<Projects.UserSkills_Api>("userskills-api")
