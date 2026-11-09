@@ -13,7 +13,7 @@ public sealed record SkillDto(
 public sealed record UserSkillSummaryDto(
     int Id, Guid UserId, int SkillId, string SkillName, string Type, byte Level, string Status, DateTime CreatedAt);
 
-public sealed record LanguageCountDto(string Language, int Count);
+public sealed record LanguageCountDto(string Code, int Count);
 
 public sealed record SkillStatsDto(
     int SkillId, string SkillName, int OffersCount, int WantsCount,
