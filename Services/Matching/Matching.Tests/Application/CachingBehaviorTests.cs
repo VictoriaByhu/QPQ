@@ -5,6 +5,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection;
 using Platform.Caching;
 
 namespace Matching.Tests.Application;
@@ -12,6 +13,9 @@ namespace Matching.Tests.Application;
 /// <summary>CachingBehavior: cache-aside для запитів (L1+L2) і інвалідація групи командою.</summary>
 public sealed class CachingBehaviorTests : IDisposable
 {
+    private static readonly System.Diagnostics.Metrics.IMeterFactory Meters =
+        new Microsoft.Extensions.DependencyInjection.ServiceCollection().AddMetrics().BuildServiceProvider()
+            .GetRequiredService<System.Diagnostics.Metrics.IMeterFactory>();
     private readonly MemoryCache _memory = new(new MemoryCacheOptions { SizeLimit = 1000 });
     private readonly CacheMetrics _metrics;
     private readonly TwoLevelCache _cache;
@@ -19,7 +23,7 @@ public sealed class CachingBehaviorTests : IDisposable
     public CachingBehaviorTests()
     {
         var options = new CacheOptions("Matching");
-        _metrics = new CacheMetrics(_memory, options);
+        _metrics = new CacheMetrics(_memory, options, Meters);
         IDistributedCache redis = new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions()));
         _cache = new TwoLevelCache(_memory, redis, _metrics, options, NullLogger<TwoLevelCache>.Instance);
     }

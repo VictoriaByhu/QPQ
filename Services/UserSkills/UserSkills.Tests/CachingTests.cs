@@ -3,6 +3,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
+using Microsoft.Extensions.DependencyInjection;
 using Platform.Caching;
 using UserSkills.Bll.Caching;
 using UserSkills.Bll.Dtos;
@@ -13,6 +14,9 @@ namespace UserSkills.Tests;
 /// <summary>Декоратори кешу UserSkills: довідники читаються з кешу, вибірка за навичкою інвалідується записами.</summary>
 public sealed class CachingTests : IDisposable
 {
+    private static readonly System.Diagnostics.Metrics.IMeterFactory Meters =
+        new Microsoft.Extensions.DependencyInjection.ServiceCollection().AddMetrics().BuildServiceProvider()
+            .GetRequiredService<System.Diagnostics.Metrics.IMeterFactory>();
     private readonly MemoryCache _memory = new(new MemoryCacheOptions { SizeLimit = 1000 });
     private readonly CacheMetrics _metrics;
     private readonly TwoLevelCache _cache;
@@ -20,7 +24,7 @@ public sealed class CachingTests : IDisposable
     public CachingTests()
     {
         var options = new CacheOptions("UserSkills");
-        _metrics = new CacheMetrics(_memory, options);
+        _metrics = new CacheMetrics(_memory, options, Meters);
         IDistributedCache redis = new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions()));
         _cache = new TwoLevelCache(_memory, redis, _metrics, options, NullLogger<TwoLevelCache>.Instance);
     }

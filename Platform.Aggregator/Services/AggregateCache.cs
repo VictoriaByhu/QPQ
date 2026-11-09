@@ -10,11 +10,21 @@ namespace Platform.Aggregator.Services;
 /// Збій Redis не валить запит — Aggregator просто збирає відповідь заново (з паузою L2 після помилки).
 /// Метрики: Meter "Aggregator.Cache" (cache.hits / cache.misses).
 /// </summary>
-public sealed class AggregateCache(IDistributedCache cache, ILogger<AggregateCache> logger)
+public sealed class AggregateCache
 {
-    private static readonly Meter Meter = new("Aggregator.Cache");
-    private static readonly Counter<long> Hits = Meter.CreateCounter<long>("cache.hits");
-    private static readonly Counter<long> Misses = Meter.CreateCounter<long>("cache.misses");
+    private readonly IDistributedCache cache;
+    private readonly ILogger<AggregateCache> logger;
+    private readonly Counter<long> Hits, Misses;
+
+    public AggregateCache(IDistributedCache cache, IMeterFactory meterFactory, ILogger<AggregateCache> logger)
+    {
+        this.cache = cache;
+        this.logger = logger;
+        var meter = meterFactory.Create("Aggregator.Cache");          // Meter створює IMeterFactory з DI
+        Hits = meter.CreateCounter<long>("cache.hits");
+        Misses = meter.CreateCounter<long>("cache.misses");
+    }
+
     private static readonly TimeSpan Timeout = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan Cooldown = TimeSpan.FromSeconds(15);
 
