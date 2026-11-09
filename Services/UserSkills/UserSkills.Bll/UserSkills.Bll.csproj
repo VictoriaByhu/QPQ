@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\UserSkills.Dal\UserSkills.Dal.csproj" />
     <ProjectReference Include="..\UserSkills.Domain\UserSkills.Domain.csproj" />
+    <ProjectReference Include="..\..\..\Platform.Caching\Platform.Caching.csproj" />
   </ItemGroup>
 
   <ItemGroup>

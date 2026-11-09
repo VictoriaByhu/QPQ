@@ -1,11 +1,13 @@
 using System.Reflection;
 using Microsoft.OpenApi.Models;
+using Platform.Caching;
 using Platform.ServiceDefaults.Correlation;
 using Platform.ServiceDefaults.Grpc;
 using Serilog;
 using UserSkills.Api.Grpc;
 using UserSkills.Api.Middleware;
 using UserSkills.Api.Services;
+using UserSkills.Bll.Caching;
 using UserSkills.Bll.Mapping;
 using UserSkills.Bll.Services;
 using UserSkills.Dal;
@@ -24,10 +26,18 @@ builder.AddServiceDefaults();
 // gRPC-сервер (Лаб. 06): AddGrpc + LoggingInterceptor і окремий HTTP/2-endpoint, порт якого дає AppHost (GRPC_PORT).
 builder.AddGrpcServerDefaults();
 
+// Кешування (Лаб. 06): L1 IMemoryCache + L2 Redis зі спільної бібліотеки Platform.Caching (ресурс "redis" в AppHost).
+builder.AddTwoLevelCache("UserSkills");
+
 // Scoped: один Unit of Work (одне з'єднання) на HTTP-запит.
 builder.Services.AddScoped<IUnitOfWork>(_ => new UnitOfWork(connectionString));
-builder.Services.AddScoped<IUserSkillService, UserSkillService>();
-builder.Services.AddScoped<IReferenceDataService, ReferenceDataService>();
+// Сервіси обгорнуті декораторами з кешем: контролери й gRPC залежать від інтерфейсів і не знають про кеш.
+builder.Services.AddScoped<UserSkillService>();
+builder.Services.AddScoped<IUserSkillService>(sp =>
+    new CachedUserSkillService(sp.GetRequiredService<UserSkillService>(), sp.GetRequiredService<ITwoLevelCache>()));
+builder.Services.AddScoped<ReferenceDataService>();
+builder.Services.AddScoped<IReferenceDataService>(sp =>
+    new CachedReferenceDataService(sp.GetRequiredService<ReferenceDataService>(), sp.GetRequiredService<ITwoLevelCache>()));
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
@@ -94,5 +104,6 @@ if (app.Environment.IsDevelopment())
 app.MapControllers();
 app.MapGrpcService<UserSkillsGrpcService>();    // gRPC (HTTP/2) для Aggregator; REST лишається для зовнішніх клієнтів
 app.MapDefaultEndpoints();
+app.MapCacheHealth();                           // GET /health/cache: hits/misses/hitRatio за рівнями
 
 app.Run();
