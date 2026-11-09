@@ -37,7 +37,16 @@ public static class Extensions
 
         builder.Services.ConfigureHttpClientDefaults(http =>
         {
-            http.AddStandardResilienceHandler();               // retry, timeout, circuit breaker (детально — Лаб. 07)
+            // retry, timeout, circuit breaker (детально — Лаб. 07). Короткі таймаути, щоб недоступний сервіс
+            // швидко перетворювався на попередження Aggregator, а не на довге очікування клієнта.
+            http.AddStandardResilienceHandler(o =>
+            {
+                o.Retry.MaxRetryAttempts = 1;
+                o.Retry.Delay = TimeSpan.FromMilliseconds(200);
+                o.AttemptTimeout.Timeout = TimeSpan.FromSeconds(2);
+                o.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(5);
+                o.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(10);   // не менше 2 × AttemptTimeout
+            });
             http.AddServiceDiscovery();                        // http://orders-api -> реальна адреса від Aspire
             http.AddHttpMessageHandler<CorrelationIdHandler>(); // CorrelationId у вихідних запитах
         });
@@ -51,12 +60,15 @@ public static class Extensions
         var isDevelopment = builder.Environment.IsDevelopment();
         var serviceName = builder.Environment.ApplicationName;
 
+        builder.Logging.ClearProviders();                  // єдиний вивід — Serilog (без дубля стандартного консольного логера)
+
         builder.Services.AddSerilog((services, cfg) => cfg
                 .MinimumLevel.Is(isDevelopment ? LogEventLevel.Debug : LogEventLevel.Information)
                 .MinimumLevel.Override("Microsoft", LogEventLevel.Information)
                 .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
                 .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
                 .MinimumLevel.Override("System.Net.Http.HttpClient", LogEventLevel.Warning)
+                .MinimumLevel.Override("Polly", LogEventLevel.Warning)   // службові події resilience — лише попередження
                 // Дрібні налаштування конкретного сервісу (наприклад, SQL-команди EF Core) можуть
                 // перевизначити рівні в секції Serilog його appsettings — вони читаються останніми.
                 .ReadFrom.Configuration(builder.Configuration)
