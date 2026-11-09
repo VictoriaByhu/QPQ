@@ -19,7 +19,9 @@ if (localSqlNeeded)
 {
     // Пароль SQL Server Aspire генерує сам під час першого запуску й зберігає в User Secrets AppHost на цій машині
     // (Parameters:sql-password) — клонувати й запускати можна без жодних налаштувань. Власний пароль можна задати там само.
-    sql = builder.AddSqlServer("sql").WithDataVolume();
+    var sqlPassword = builder.AddParameter("sql-password",
+        new GenerateParameterDefault { MinLength = 20, Special = false }, secret: true, persist: true);
+    sql = builder.AddSqlServer("sql", sqlPassword).WithDataVolume();
 }
 
 // Ім'я ресурсу = ім'я рядка підключення в сервісі (ConnectionStrings:<ім'я>), друге значення — ім'я бази на сервері.
