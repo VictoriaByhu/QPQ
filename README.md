@@ -570,6 +570,8 @@ sqlcmd -S "<host>,<port>" -U <login> -C -f 65001 -i db/p1/userskills.seed.sql
 
 ### Запуск через .NET Aspire
 
+> Починаючи з Лаб. 05 базу UserSkills у контейнері створює й наповнює сам AppHost (див. розділ «Лаб. 05»); кроки з User Secrets нижче потрібні лише для запуску сервісу окремо від платформи.
+
 1. Збережіть рядок підключення в User Secrets AppHost (пароль не потрапляє в git):
 
 ```
@@ -623,3 +625,65 @@ dotnet test Services/UserSkills/UserSkills.Tests
 ## Лаб. 04: Matching (Clean Architecture, CQRS, MediatR, MongoDB)
 
 Сервіс Matching піддомену Skills (Проєкт №3, база `QPQ_Matching`) переписано за шаблоном Clean Architecture: чотири проєкти з правильним напрямком залежностей, доменні сутності та Value Objects, команди й запити MediatR, наскрізна валідація через Pipeline Behaviors (FluentValidation), BSON-мапінг через `BsonClassMap`, оптимістична конкурентність (`version`, `ETag` / `If-Match`), централізована обробка помилок MongoDB, сідінг та індекси при старті. Код: `Services/Matching/`, схема шарів, запуск і чекліст перед здачею: [Services/Matching/README.md](Services/Matching/README.md).
+
+## Лаб. 05: платформа на .NET Aspire (Gateway, Aggregator, ServiceDefaults)
+
+Сервіси піддомену Skills (Лаб. 02–04) об'єднано в одну платформу: **усе запускається однією командою через AppHost**, клієнт ходить лише через Gateway, а в Aspire Dashboard один запит видно наскрізно — за trace і за CorrelationId.
+
+```
+Клієнт ─► gateway (YARP, :5000, генерує CorrelationId)
+            ├─► catalog-api      /api/skills, /api/categories, /api/tags        (SQL Server, EF Core)
+            ├─► userskills-api   /api/user-skills, /api/languages               (SQL Server, Dapper)
+            ├─► matching-api     /api/matches, /api/index-entries, /api/skill-stats   (MongoDB)
+            └─► aggregator       /api/aggregator/skills/{id}/full
+                                   └─ Task.WhenAll ─► catalog-api · userskills-api · matching-api
+```
+
+| Компонент | Призначення |
+|---|---|
+| `Platform.AppHost` | оркестрація: контейнери SQL Server і MongoDB (`WithDataVolume`), реєстрація сервісів, `WithReference`/`WaitFor`, health checks |
+| `Platform.ServiceDefaults` | Serilog (структуровані логи), OpenTelemetry (трасування й метрики), health checks, service discovery, resilience, CorrelationId |
+| `Platform.ApiGateway` | єдина точка входу на YARP; маршрути за логічними іменами сервісів; логи маршрутизації й метрики |
+| `Platform.Aggregator` | Aggregator Pattern: картка навички з трьох сервісів, часткові відповіді |
+
+### Запуск
+
+Потрібні .NET 10 SDK і Docker Desktop (або podman). Пароль SQL Server — секрет AppHost, у репозиторії його немає:
+
+```
+dotnet user-secrets set "Parameters:sql-password" "<складний пароль>" --project Platform.AppHost
+dotnet run --project Platform.AppHost
+```
+
+Для podman перед запуском: `export ASPIRE_CONTAINER_RUNTIME=podman`. Dashboard відкривається за посиланням із консолі (за замовчуванням `https://localhost:17100`, профіль `http` — `http://localhost:15100`).
+Порядок старту: бази → сервіси → Aggregator → Gateway (ланцюжки `WaitFor`; готовність визначає `/health`).
+
+Бази створюються автоматично: `CatalogDb` (`QPQ_CatalogEf`) — міграціями EF Core при старті Catalog, `UserSkillsDb` (`QPQ_UserSkills`) — скриптами `db/p1` (AppHost виконує їх, щойно база готова), `MatchingDb` (`QPQ_Matching`) — індексами й сідінгом Matching. Дані зберігаються між перезапусками (volumes).
+
+> Якщо змінити `sql-password` після першого запуску, том SQL Server збереже старий пароль: видаліть том (`podman volume rm` / Docker Desktop → Volumes) і запустіть знову.
+
+### Що змінено в сервісах Лаб. 02–04
+
+Бізнес-логіку не змінено. У `Program.cs` кожного сервісу: `builder.AddServiceDefaults()` (замість власного `UseSerilog`), `app.UseMiddleware<CorrelationIdMiddleware>()` і `app.MapDefaultEndpoints()` (`/health`, `/alive`); рядки підключення читаються з `ConnectionStrings:<ім'я бази>`, а `appsettings.json` лишається резервним варіантом для запуску без Aspire.
+Додатково: у Catalog з `RequestContextMiddleware` прибрано власну обробку CorrelationId (його додає спільний middleware); у Matching `MongoClient` підписується на `DiagnosticsActivityEventSubscriber`, щоб команди MongoDB потрапляли в trace, а `MapHealthChecks("/health")` замінено на `MapDefaultEndpoints()`.
+
+### Перевірка
+
+```
+curl -i http://localhost:5000/api/skills/1                      # через Gateway; у відповіді X-Correlation-Id
+curl -i http://localhost:5000/api/skills/1 -H "X-Correlation-Id: my-id-1"   # власний id зберігається
+curl    http://localhost:5000/api/user-skills/by-skill/1
+curl    http://localhost:5000/api/skill-stats/1
+curl -i http://localhost:5000/api/aggregator/skills/1/full      # картка навички з трьох сервісів
+```
+
+- **Логи за CorrelationId:** Dashboard → Structured logs → фільтр `CorrelationId` (значення з заголовка відповіді) показує записи Gateway, Aggregator і сервісів. Кожен запис містить `ServiceName`, `EnvironmentName`, `MachineName`, `CorrelationId`, `TraceId`, `SpanId`.
+- **Trace:** Dashboard → Traces → запит `GET /api/aggregator/...`: Gateway → Aggregator → паралельні виклики catalog-api, userskills-api, matching-api → spans SQL Server (Dapper, EF Core) і MongoDB.
+- **Часткова відповідь:** зупиніть `matching-api` у Dashboard і повторіть запит до Aggregator — відповідь `200` містить навичку й записи користувачів, а в `warnings` — `matching-api is unavailable`. Після запуску сервісу відповідь знову повна. Неіснуюча навичка (`/skills/999/full`) дає `404` (без довідника агрегувати нічого).
+- **Gateway ≠ просте проксі:** виклик напряму за внутрішньою адресою сервісу (з Dashboard) не містить CorrelationId, доки його не передасть клієнт; Gateway завжди додає його й логує маршрут, статус і тривалість.
+
+### Примітки
+
+- `/api/skills` належить Catalog; однойменний довідниковий ендпоінт UserSkills (`/api/skills`) через Gateway недоступний, зате доступні `/api/user-skills/*` і `/api/languages`.
+- Resilience-політики (`AddStandardResilienceHandler`) налаштовано коротко (2 с на спробу, 5 с загалом), щоб недоступний сервіс швидко ставав попередженням; детально — Лаб. 07.
+- Сервіси на HTTP, сертифікати dev-середовища не потрібні (`ASPIRE_ALLOW_UNSECURED_TRANSPORT=true` для профілю `http`).
