@@ -67,7 +67,7 @@ var catalog = builder.AddProject<Projects.Catalog_Api>("catalog-api")
 
 var matching = builder.AddProject<Projects.Matching_WebApi>("matching-api")
     .WithReference(matchingDb).WaitFor(matchingDb)
-    .WithEnvironment("Database__Seed", "true")                            // демонстраційні дані для статистики пар
+    .WithEnvironment("Database__Seed", IsExternal("MatchingDb") ? "false" : "true")   // демо-дані лише для локальної бази
     .WithHttpHealthCheck("/health");
 
 // ── Aggregator → Gateway: порядок запуску БД → сервіси → Aggregator → Gateway задається ланцюжками WaitFor ──
