@@ -8,13 +8,18 @@
 
   <ItemGroup>
     <PackageReference Include="Aspire.MongoDB.Driver" Version="8.2.2" />
+    <PackageReference Include="Aspire.StackExchange.Redis.DistributedCaching" Version="13.6.4" />
+    <PackageReference Include="Grpc.AspNetCore" Version="2.85.0" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.14" />
     <PackageReference Include="MongoDB.Bson" Version="2.30.0" />
     <PackageReference Include="MongoDB.Driver" Version="2.30.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="10.3.1" />
+	  <Protobuf Include="Protos\reviews.proto" GrpcServices="Server" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Platform.ServiceDefaults\Platform.ServiceDefaults.csproj" />
     <ProjectReference Include="..\QPQ.Reviews.Application\QPQ.Reviews.Application.csproj" />
     <ProjectReference Include="..\QPQ.Reviews.Infrastructure\QPQ.Reviews.Infrastructure.csproj" />
   </ItemGroup>
