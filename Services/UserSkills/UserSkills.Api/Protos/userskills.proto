@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+
+option csharp_namespace = "UserSkills.GrpcContracts";
+
+package userskills;
+
+// Читання записів користувачів для внутрішніх сервісів (Aggregator).
+service UserSkillsService {
+  // Активні записи за навичкою (Offer/Want) разом з її назвою. Некоректні параметри -> InvalidArgument.
+  rpc ListBySkill (ListBySkillRequest) returns (UserSkillsReply);
+}
+
+message ListBySkillRequest {
+  int32 skill_id = 1;
+  optional string type = 2;   // "Offer" | "Want"; без значення — обидва типи
+  int32 limit = 3;            // 1..100; 0 -> 20 за замовчуванням
+}
+
+// Номери полів не змінюються після публікації контракту.
+message UserSkillSummary {
+  int32 id = 1;
+  string user_id = 2;         // Guid у текстовому вигляді
+  int32 skill_id = 3;
+  string skill_name = 4;
+  string type = 5;
+  int32 level = 6;
+  string status = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message UserSkillsReply {
+  repeated UserSkillSummary user_skills = 1;
+}

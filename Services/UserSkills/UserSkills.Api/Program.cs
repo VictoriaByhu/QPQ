@@ -1,7 +1,9 @@
 using System.Reflection;
 using Microsoft.OpenApi.Models;
 using Platform.ServiceDefaults.Correlation;
+using Platform.ServiceDefaults.Grpc;
 using Serilog;
+using UserSkills.Api.Grpc;
 using UserSkills.Api.Middleware;
 using UserSkills.Api.Services;
 using UserSkills.Bll.Mapping;
@@ -18,6 +20,9 @@ var connectionString = builder.Configuration.GetConnectionString("UserSkillsDb")
 
 // Логування (Serilog), трасування (OpenTelemetry), health checks і service discovery — зі спільного ServiceDefaults.
 builder.AddServiceDefaults();
+
+// gRPC-сервер (Лаб. 06): AddGrpc + LoggingInterceptor і окремий HTTP/2-endpoint, порт якого дає AppHost (GRPC_PORT).
+builder.AddGrpcServerDefaults();
 
 // Scoped: один Unit of Work (одне з'єднання) на HTTP-запит.
 builder.Services.AddScoped<IUnitOfWork>(_ => new UnitOfWork(connectionString));
@@ -87,6 +92,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapControllers();
+app.MapGrpcService<UserSkillsGrpcService>();    // gRPC (HTTP/2) для Aggregator; REST лишається для зовнішніх клієнтів
 app.MapDefaultEndpoints();
 
 app.Run();
