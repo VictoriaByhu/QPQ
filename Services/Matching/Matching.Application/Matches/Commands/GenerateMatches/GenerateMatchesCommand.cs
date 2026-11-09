@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using FluentValidation;
 using MediatR;
 using Matching.Application.Common;
@@ -26,8 +27,11 @@ public sealed class GenerateMatchesCommandHandler(
     ILogger<GenerateMatchesCommandHandler> logger)
     : IRequestHandler<GenerateMatchesCommand, GenerateMatchesResult>
 {
+    private static readonly ActivitySource Source = new("Matching.WebApi");
+
     public async Task<GenerateMatchesResult> Handle(GenerateMatchesCommand cmd, CancellationToken ct)
     {
+        using var activity = Source.StartActivity("Matches.Generate");
         int created = 0, upgraded = 0, skipped = 0;
 
         var wants = await index.FindActiveAsync(cmd.UserId, null, UserSkillType.Want, null, ct);
@@ -89,6 +93,8 @@ public sealed class GenerateMatchesCommandHandler(
             }
         }
 
+        activity?.SetTag("matches.created", created);
+        activity?.SetTag("matches.upgraded", upgraded);
         logger.LogInformation("Matches for user {UserId}: created {Created}, upgraded {Upgraded}, skipped {Skipped}",
             cmd.UserId, created, upgraded, skipped);
         return new GenerateMatchesResult(created, upgraded, skipped);
