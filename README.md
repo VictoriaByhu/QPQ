@@ -2,6 +2,63 @@
 
 Платформа обміну навичками: користувачі пропонують свої навички та домовляються про обмін з іншими.
 
+## Швидкий запуск платформи
+
+Усю платформу (Catalog, UserSkills, Matching, Aggregator, Gateway і Redis) піднімає одна команда. Без налаштувань AppHost сам створює локальні контейнери SQL Server, MongoDB і Redis; віддалені бази підключаються через User Secrets (див. розділ Лаб. 05).
+
+```bash
+export ASPIRE_CONTAINER_RUNTIME=podman     # лише якщо замість Docker використовується podman
+dotnet run --project Platform.AppHost --launch-profile http
+```
+
+| Що | Адреса |
+|---|---|
+| **Gateway** (єдина точка входу, YARP) | **http://localhost:5000** |
+| Aspire Dashboard (профіль `http`; логи, трейси, метрики) | http://localhost:15100 |
+| Swagger кожного сервісу | Dashboard → ресурс → Endpoints → `/swagger` |
+
+### Приклади curl через Gateway
+
+Усі запити йдуть на `http://localhost:5000`. Gateway додає у відповідь заголовок `X-Correlation-Id` (той самий id бачать усі сервіси та Aggregator в Structured logs і trace); власний id можна передати у запиті.
+
+```bash
+# Gateway: X-Correlation-Id у відповіді; власний id зберігається наскрізь
+curl -i http://localhost:5000/api/skills/1
+curl -i http://localhost:5000/api/skills/1 -H "X-Correlation-Id: my-id-1"
+
+# Catalog (Лаб. 03, EF Core): навички, категорії, теги
+curl "http://localhost:5000/api/skills?pageNumber=1&pageSize=5"
+curl http://localhost:5000/api/skills/1
+curl http://localhost:5000/api/categories
+curl http://localhost:5000/api/tags
+
+# UserSkills (Лаб. 02, ADO.NET + Dapper): довідник мов, вибірка за навичкою (Dapper multi-mapping)
+curl http://localhost:5000/api/languages
+curl http://localhost:5000/api/user-skills/by-skill/1
+curl "http://localhost:5000/api/user-skills/by-skill/1?type=Offer&limit=5"
+
+# Matching (Лаб. 04, MongoDB): записи індексу, пари, статистика
+curl "http://localhost:5000/api/index-entries?skillId=1&pageSize=3"
+curl "http://localhost:5000/api/matches?userId=11111111-1111-1111-1111-111111111111"
+curl http://localhost:5000/api/skill-stats
+curl http://localhost:5000/api/skill-stats/1
+
+# Aggregator (Лаб. 05/06): картка навички з трьох сервісів паралельно по gRPC
+curl -i http://localhost:5000/api/aggregator/skills/1/full                 # 1-й запит: збирає з трьох сервісів
+curl -i http://localhost:5000/api/aggregator/skills/1/full                 # 2-й: з Redis, мілісекунди (Aggregate cache hit)
+curl -i "http://localhost:5000/api/aggregator/skills/1/full?refresh=true"  # обхід кешу Aggregator (кеші сервісів лишаються)
+curl -i http://localhost:5000/api/aggregator/skills/999999/full            # 404: NotFound з gRPC -> HTTP 404
+```
+
+**Сценарії Лаб. 6 (gRPC і кешування):**
+
+- *Кеш:* виконайте `curl http://localhost:5000/api/skills/1` двічі — у Dashboard → Traces другий trace не містить SQL-span; метрика `cache.hits` (Metrics → `Catalog.Cache`, `UserSkills.Cache`, `Matching.Cache`) зростає. Статистика кешу сервісу: `GET /health/cache` на його порту з Dashboard.
+- *gRPC:* trace `aggregator/skills/1/full?refresh=true` містить gRPC-span клієнта й сервера для catalog, userskills і matching в одному trace.
+- *Часткова відповідь:* зупиніть `userskills-api` у Dashboard і повторіть `.../full?refresh=true` — відповідь `200` із полем `warnings` (≈ 3 с, deadline); зупинка `catalog-api` дає `503`.
+- *Redis недоступний:* зупиніть контейнер `redis` — сервіси відповідають далі (L1 + база), `/health/cache` показує `Degraded`.
+
+Повний опис архітектури, кешування, gRPC та порівняння з Лаб. 05 — у розділі [Лаб. 06](#лаб-06-grpc-і-кешування-imemorycache--redis) нижче; детально по сервісах — у `Services/*/README.md`.
+
 ## Предметна область і контексти
 
 Домен розбито на три піддомени, у кожному по три API. Кожен API має власну базу даних.
