@@ -648,10 +648,9 @@ dotnet test Services/UserSkills/UserSkills.Tests
 
 ### Запуск
 
-Потрібні .NET 10 SDK і Docker Desktop (або podman). Пароль SQL Server — секрет AppHost, у репозиторії його немає:
+Потрібні .NET 10 SDK і Docker Desktop (або podman). Налаштовувати нічого не треба: після клонування працює локальний режим, пароль SQL Server Aspire генерує сам і зберігає в User Secrets AppHost на вашій машині (у репозиторії паролів немає):
 
 ```
-dotnet user-secrets set "Parameters:sql-password" "<складний пароль>" --project Platform.AppHost
 dotnet run --project Platform.AppHost
 ```
 
@@ -672,7 +671,7 @@ dotnet user-secrets set "ConnectionStrings:MatchingDb"   "<рядок підкл
 
 Локальні бази створюються автоматично: `CatalogDb` (`QPQ_CatalogEf`) — міграціями EF Core при старті Catalog, `UserSkillsDb` (`QPQ_UserSkills`) — скриптами `db/p1` (AppHost виконує їх, щойно база готова), `MatchingDb` (`QPQ_Matching`) — індексами й сідінгом Matching. Дані зберігаються між перезапусками (volumes).
 
-> Якщо змінити `sql-password` після першого запуску, том SQL Server збереже старий пароль: видаліть том (`podman volume rm` / Docker Desktop → Volumes) і запустіть знову.
+> Пароль SQL Server зберігається в томі разом з даними: якщо видалити секрет `Parameters:sql-password` або змінити його після першого запуску, видаліть і том (`podman volume rm` / Docker Desktop → Volumes), інакше SQL Server не прийме новий пароль.
 
 ### Що змінено в сервісах Лаб. 02–04
 
