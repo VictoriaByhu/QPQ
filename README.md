@@ -666,6 +666,8 @@ dotnet user-secrets set "ConnectionStrings:CatalogDb"    "<рядок підкл
 dotnet user-secrets set "ConnectionStrings:MatchingDb"   "<рядок підключення MongoDB>" --project Platform.AppHost
 ```
 
+Якщо віддалений MongoDB працює лише по TLS із самопідписаним сертифікатом (наприклад, Coolify), додайте до рядка `?authSource=admin&tls=true&tlsInsecure=true`; демо-сід Matching для віддаленої бази вимкнено.
+
 Для віддаленого SQL Server схему UserSkills (`db/p1`) розгортають вручну, Catalog створює схему міграціями сам; контейнер SQL Server (і пароль) не потрібні, якщо віддаленими є обидві SQL-бази. Для перевірки й здачі лабораторної секрети видаляють (`dotnet user-secrets remove ... --project Platform.AppHost`).
 
 Локальні бази створюються автоматично: `CatalogDb` (`QPQ_CatalogEf`) — міграціями EF Core при старті Catalog, `UserSkillsDb` (`QPQ_UserSkills`) — скриптами `db/p1` (AppHost виконує їх, щойно база готова), `MatchingDb` (`QPQ_Matching`) — індексами й сідінгом Matching. Дані зберігаються між перезапусками (volumes).
