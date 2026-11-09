@@ -16,6 +16,7 @@ public class ApiFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
+        builder.UseSetting("Cache:Warmup:Enabled", "false");   // прогрівання кешу в тестах не потрібне й заважало б детермінованості
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<CatalogDbContext>();
