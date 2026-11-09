@@ -17,6 +17,7 @@
   <ItemGroup>
     <ProjectReference Include="..\UserSkills.Bll\UserSkills.Bll.csproj" />
     <ProjectReference Include="..\UserSkills.Domain\UserSkills.Domain.csproj" />
+    <ProjectReference Include="..\..\..\Platform.ServiceDefaults\Platform.ServiceDefaults.csproj" />
   </ItemGroup>
 
 </Project>

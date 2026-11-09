@@ -1,7 +1,7 @@
 using System.Reflection;
 using Microsoft.OpenApi.Models;
+using Platform.ServiceDefaults.Correlation;
 using Serilog;
-using Serilog.Context;
 using UserSkills.Api.Middleware;
 using UserSkills.Api.Services;
 using UserSkills.Bll.Mapping;
@@ -16,10 +16,8 @@ var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("UserSkillsDb")
     ?? throw new InvalidOperationException("Connection string 'UserSkillsDb' is missing");
 
-builder.Host.UseSerilog((ctx, cfg) => cfg
-    .ReadFrom.Configuration(ctx.Configuration)
-    .Enrich.FromLogContext()
-    .WriteTo.Console());
+// Логування (Serilog), трасування (OpenTelemetry), health checks і service discovery — зі спільного ServiceDefaults.
+builder.AddServiceDefaults();
 
 // Scoped: один Unit of Work (одне з'єднання) на HTTP-запит.
 builder.Services.AddScoped<IUnitOfWork>(_ => new UnitOfWork(connectionString));
@@ -77,15 +75,7 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
-app.Use(async (context, next) =>
-{
-    // Кореляційний ідентифікатор у кожному записі логу; секрети (токени, паролі) не логуються.
-    using (LogContext.PushProperty("TraceId", context.TraceIdentifier))
-    {
-        await next();
-    }
-});
-
+app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseSerilogRequestLogging();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
@@ -97,5 +87,6 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapControllers();
+app.MapDefaultEndpoints();
 
 app.Run();
