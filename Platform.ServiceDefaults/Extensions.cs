@@ -30,6 +30,7 @@ public static class Extensions
         "Messages.WebApi",
         "Platform.Aggregator",
         "Platform.ApiGateway",
+        "Platform.Messaging",
         "MongoDB.Driver.Core.Extensions.DiagnosticSources"
     ];
 
