@@ -16,19 +16,27 @@ var messagesDb = mongo.AddDatabase("MessagesDb", "QPQ_Messages");
 
 var redis = builder.AddRedis("redis").WithDataVolume();
 
+// Swap events: swaps-api publishes, sessions-api and messages-api keep their copies in sync.
+var rabbit = builder.AddRabbitMQ("messaging")
+    .WithDataVolume()
+    .WithManagementPlugin();
+
 // WithHttpHealthCheck makes the dashboard show real health and makes WaitFor wait for Healthy, not just a started process.
 // /health answers 200 for Healthy and Degraded, so a stopped Redis does not hold back the services that depend on it.
 var swaps = builder.AddProject<Projects.Swaps_Api>("swaps-api")
     .WithReference(swapsDb).WaitFor(swapsDb)
     .WithReference(redis).WaitFor(redis)
+    .WithReference(rabbit).WaitFor(rabbit)
     .WithHttpHealthCheck("/health");
 
 var sessions = builder.AddProject<Projects.Sessions_Api>("sessions-api")
     .WithReference(sessionsDb).WaitFor(sessionsDb)
+    .WithReference(rabbit).WaitFor(rabbit)
     .WithHttpHealthCheck("/health");
 
 var messages = builder.AddProject<Projects.Messages_WebApi>("messages-api")
     .WithReference(messagesDb).WaitFor(messagesDb)
+    .WithReference(rabbit).WaitFor(rabbit)
     .WithHttpHealthCheck("/health");
 
 var aggregator = builder.AddProject<Projects.Platform_Aggregator>("aggregator")
