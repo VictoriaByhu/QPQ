@@ -51,6 +51,8 @@ builder.Services.AddAutoMapper(cfg =>
 
 builder.Services.AddControllers();
 builder.Services.AddGrpc(o => o.Interceptors.Add<GrpcLoggingInterceptor>());
+// grpc.health.v1 over the same health checks, so the aggregator can probe this service.
+builder.Services.AddGrpcHealthChecks();
 
 builder.Services.AddProblemDetails(o => o.CustomizeProblemDetails = ctx =>
     ctx.ProblemDetails.Extensions["traceId"] = ctx.HttpContext.TraceIdentifier);
@@ -108,6 +110,7 @@ if (app.Environment.IsDevelopment())
 
 app.MapControllers();
 app.MapGrpcService<SessionsGrpcService>();
+app.MapGrpcHealthChecksService();
 app.MapDefaultEndpoints();
 
 await app.RunAsync();
