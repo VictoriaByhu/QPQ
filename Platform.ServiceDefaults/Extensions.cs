@@ -7,6 +7,7 @@ using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using Platform.ServiceDefaults;
+using Platform.ServiceDefaults.HealthChecks;
 using Serilog;
 using Serilog.Events;
 using Serilog.Formatting.Compact;
@@ -17,6 +18,10 @@ public static class Extensions
 {
     private const string HealthEndpointPath = "/health";
     private const string AlivenessEndpointPath = "/alive";
+    private const string LivenessEndpointPath = "/health/live";
+    private const string ReadinessEndpointPath = "/health/ready";
+    private const string LiveTag = "live";
+    private const string ReadyTag = "ready";
 
     private static readonly string[] ServiceActivitySources =
     [
@@ -134,22 +139,38 @@ public static class Extensions
     public static TBuilder AddDefaultHealthChecks<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.Services.AddHealthChecks()
-            .AddCheck("self", () => HealthCheckResult.Healthy(), ["live"]);
+            .AddCheck("self", () => HealthCheckResult.Healthy(), [LiveTag]);
 
         return builder;
     }
 
+    /// <summary>
+    /// Health endpoints in every environment, since orchestrators probe them in production too:
+    /// /health/live (process only, no dependencies), /health/ready (dependencies tagged "ready"),
+    /// /health (all checks, used by the AppHost) and /alive (kept for compatibility).
+    /// Degraded answers 200, Unhealthy answers 503.
+    /// </summary>
     public static WebApplication MapDefaultEndpoints(this WebApplication app)
     {
-        if (app.Environment.IsDevelopment())
+        var live = new HealthCheckOptions
         {
-            app.MapHealthChecks(HealthEndpointPath);
+            Predicate = r => r.Tags.Contains(LiveTag),
+            ResponseWriter = HealthResponseWriter.WriteAsync
+        };
 
-            app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions
-            {
-                Predicate = r => r.Tags.Contains("live")
-            });
-        }
+        app.MapHealthChecks(LivenessEndpointPath, live);
+        app.MapHealthChecks(AlivenessEndpointPath, live);
+
+        app.MapHealthChecks(ReadinessEndpointPath, new HealthCheckOptions
+        {
+            Predicate = r => r.Tags.Contains(ReadyTag),
+            ResponseWriter = HealthResponseWriter.WriteAsync
+        });
+
+        app.MapHealthChecks(HealthEndpointPath, new HealthCheckOptions
+        {
+            ResponseWriter = HealthResponseWriter.WriteAsync
+        });
 
         return app;
     }
