@@ -1,9 +1,11 @@
 using System.Reflection;
 using Microsoft.OpenApi.Models;
+using Platform.EventBus;
 using Platform.ServiceDefaults;
 using Platform.ServiceDefaults.Grpc;
 using Swaps.Api.Grpc;
 using Swaps.Api.HealthChecks;
+using Swaps.Api.IntegrationEvents;
 using Swaps.Api.Metrics;
 using Swaps.Api.Middleware;
 using Swaps.Api.Services;
@@ -25,6 +27,14 @@ var redisConnectionString = builder.Configuration.GetConnectionString("redis")
 
 builder.Services.AddSwapsHealthChecks(connectionString, redisConnectionString);
 
+// Our own broker check (tagged ready, Degraded) and tracing spans replace the integration's ones.
+builder.AddRabbitMQClient("messaging", settings =>
+{
+    settings.DisableHealthChecks = true;
+    settings.DisableTracing = true;
+});
+builder.Services.AddEventBus();
+
 builder.Services.AddMemoryCache(o =>
 {
     o.SizeLimit = 10_000;
@@ -39,7 +49,19 @@ builder.Services.AddScoped<SwapService>();
 builder.Services.AddScoped<SkillService>();
 builder.Services.AddScoped(sp =>
     ActivatorUtilities.CreateInstance<CachedSwapService>(sp, (ISwapService)sp.GetRequiredService<SwapService>()));
-builder.Services.AddScoped<MeteredSwapService>();
+// Decorators, outermost first: Metered → Publishing → Cached → SwapService.
+// Publishing sits above the cache, so the card it reads after a change is the committed one;
+// metrics wrap the whole operation, publishing included.
+builder.Services.AddScoped(sp => new PublishingSwapService(
+    sp.GetRequiredService<CachedSwapService>(),
+    sp.GetRequiredService<CachedSwapService>(),
+    sp.GetRequiredService<IEventPublisher>(),
+    sp.GetRequiredService<IHttpContextAccessor>(),
+    sp.GetRequiredService<ILogger<PublishingSwapService>>()));
+builder.Services.AddScoped(sp => new MeteredSwapService(
+    sp.GetRequiredService<PublishingSwapService>(),
+    sp.GetRequiredService<CachedSwapService>(),
+    sp.GetRequiredService<SwapMetrics>()));
 builder.Services.AddScoped<ISwapService>(sp => sp.GetRequiredService<MeteredSwapService>());
 builder.Services.AddScoped<ISwapCardReader>(sp => sp.GetRequiredService<MeteredSwapService>());
 builder.Services.AddScoped<ISkillService>(sp =>

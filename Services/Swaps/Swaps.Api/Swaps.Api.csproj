@@ -26,6 +26,7 @@
     <ProjectReference Include="..\Swaps.Bll\Swaps.Bll.csproj" />
     <ProjectReference Include="..\Swaps.Domain\Swaps.Domain.csproj" />
     <ProjectReference Include="..\..\..\Platform.ServiceDefaults\Platform.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\..\..\Platform.EventBus\Platform.EventBus.csproj" />
   </ItemGroup>
 
 </Project>

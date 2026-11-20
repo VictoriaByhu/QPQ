@@ -7,7 +7,8 @@ using Swaps.Domain.Constants;
 namespace Swaps.Api.Metrics;
 
 /// <summary>Outermost decorator: measures swap operations and counts successful ones; the logic stays in the BLL.</summary>
-public sealed class MeteredSwapService(CachedSwapService inner, SwapMetrics metrics) : ISwapService, ISwapCardReader
+public sealed class MeteredSwapService(ISwapService inner, ISwapCardReader cards, SwapMetrics metrics)
+    : ISwapService, ISwapCardReader
 {
     public async Task<SwapDto> CreateAsync(Guid userId, CreateSwapDto input, CancellationToken ct = default)
     {
@@ -20,7 +21,7 @@ public sealed class MeteredSwapService(CachedSwapService inner, SwapMetrics metr
         => metrics.Duration.MeasureAsync("get_card", () => inner.GetByIdAsync(userId, swapId, ct));
 
     public Task<SwapDto?> GetCardAsync(int swapId, CancellationToken ct = default)
-        => metrics.Duration.MeasureAsync("get_card", () => inner.GetCardAsync(swapId, ct));
+        => metrics.Duration.MeasureAsync("get_card", () => cards.GetCardAsync(swapId, ct));
 
     public Task AcceptAsync(Guid userId, int swapId, ChangeSwapStatusDto? input, CancellationToken ct = default)
         => ChangeStatusAsync("accept", SwapStatuses.Accepted, () => inner.AcceptAsync(userId, swapId, input, ct));
