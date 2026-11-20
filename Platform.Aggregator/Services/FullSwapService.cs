@@ -4,6 +4,7 @@ using Messages.Grpc;
 using Platform.Aggregator.Caching;
 using Platform.Aggregator.Clients;
 using Platform.Aggregator.Dtos;
+using Platform.Aggregator.Resilience;
 using Polly.CircuitBreaker;
 using Polly.Timeout;
 using Sessions.Grpc;
@@ -20,7 +21,6 @@ public sealed class FullSwapService(
     ILogger<FullSwapService> logger)
 {
     private static readonly ActivitySource Source = new("Platform.Aggregator");
-    private static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(10);
 
     public async Task<FullSwapDto?> GetFullSwapAsync(int swapId, CancellationToken ct)
     {
@@ -75,7 +75,7 @@ public sealed class FullSwapService(
         try
         {
             var reply = await swaps.GetSwapAsync(
-                new GetSwapRequest { Id = swapId }, deadline: Deadline(), cancellationToken: ct).ResponseAsync;
+                new GetSwapRequest { Id = swapId }, deadline: ResiliencePolicies.Swaps.Deadline(), cancellationToken: ct).ResponseAsync;
             return reply.ToDto();
         }
         catch (RpcException ex) when (ex.StatusCode is StatusCode.NotFound or StatusCode.PermissionDenied)
@@ -91,7 +91,7 @@ public sealed class FullSwapService(
         try
         {
             var reply = await sessions.GetSessionsBySwapAsync(
-                new GetSessionsBySwapRequest { SwapId = swapId }, deadline: Deadline(), cancellationToken: ct).ResponseAsync;
+                new GetSessionsBySwapRequest { SwapId = swapId }, deadline: ResiliencePolicies.Sessions.Deadline(), cancellationToken: ct).ResponseAsync;
             return reply.ToDtos();
         }
         catch (RpcException ex) when (ex.StatusCode == StatusCode.NotFound)
@@ -106,7 +106,7 @@ public sealed class FullSwapService(
         try
         {
             var reply = await messages.GetSwapConversationAsync(
-                new GetSwapConversationRequest { SwapId = swapId }, deadline: Deadline(), cancellationToken: ct).ResponseAsync;
+                new GetSwapConversationRequest { SwapId = swapId }, deadline: ResiliencePolicies.Messages.Deadline(), cancellationToken: ct).ResponseAsync;
             return reply.ToDto();
         }
         catch (RpcException ex) when (ex.StatusCode == StatusCode.NotFound)
@@ -115,8 +115,6 @@ public sealed class FullSwapService(
             return ConversationMessagesDto.Empty;
         }
     }
-
-    private static DateTime Deadline() => DateTime.UtcNow.Add(CallTimeout);
 
     private string ResolveParticipant(SwapDto swap)
     {

@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Messages.Grpc;
 using Platform.Aggregator.Caching;
 using Platform.Aggregator.Clients;
+using Platform.Aggregator.Resilience;
 using Platform.Aggregator.Services;
 using Platform.ServiceDefaults;
 using Sessions.Grpc;
@@ -18,11 +19,17 @@ builder.Services.AddSingleton<FullSwapCache>();
 builder.Services.AddTransient<UserIdForwardingHandler>();
 
 builder.Services.AddGrpcClient<SwapsService.SwapsServiceClient>(o => o.Address = new Uri("https://swaps-api"))
-    .AddHttpMessageHandler<UserIdForwardingHandler>();
+    .AddHttpMessageHandler<UserIdForwardingHandler>()
+    .WithResilience(ResiliencePolicies.Swaps)
+    .WithGrpcRetry(ResiliencePolicies.Swaps);
 builder.Services.AddGrpcClient<SessionsService.SessionsServiceClient>(o => o.Address = new Uri("https://sessions-api"))
-    .AddHttpMessageHandler<UserIdForwardingHandler>();
+    .AddHttpMessageHandler<UserIdForwardingHandler>()
+    .WithResilience(ResiliencePolicies.Sessions)
+    .WithGrpcRetry(ResiliencePolicies.Sessions);
 builder.Services.AddGrpcClient<MessagesService.MessagesServiceClient>(o => o.Address = new Uri("https://messages-api"))
-    .AddHttpMessageHandler<UserIdForwardingHandler>();
+    .AddHttpMessageHandler<UserIdForwardingHandler>()
+    .WithResilience(ResiliencePolicies.Messages)
+    .WithGrpcRetry(ResiliencePolicies.Messages);
 
 builder.Services.AddScoped<FullSwapService>();
 
