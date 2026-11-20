@@ -31,8 +31,8 @@
 | Користувачі | Identity | ніде не дублюються | лише `UserId` (GUID) у полях `InitiatorId`, `PartnerId`, `CreatedBy`, `UpdatedBy`, `ChangedByUserId`, `CreatedByUserId`, `senderId`, `uploadedBy`, `participants.userId` | ім'я для відображення береться з токена або з Identity; подія `UserDeleted` очищає дані користувача |
 | Навички | Catalog | Swaps (`Skills`) | `Id`, `Name` | подія `SkillChanged` оновлює локальну копію |
 | Навички | Catalog | Sessions (`Skills`) | `Id`, `Name` | подія `SkillChanged` оновлює локальну копію |
-| Прийнятий обмін | Swaps | Sessions (`AcceptedSwaps`) | `SwapId`, `InitiatorId`, `PartnerId`, `Status` | події `SwapAccepted` (створює копію) і `SwapCompleted` (оновлює статус) |
-| Прийнятий обмін | Swaps | Messages (`conversations`) | `swapId`, `swapStatus`, `participants` (`userId`, `role`) | події `SwapAccepted` (створює розмову) і `SwapCompleted` (оновлює `swapStatus`) |
+| Прийнятий обмін | Swaps | Sessions (`AcceptedSwaps`) | `SwapId`, `InitiatorId`, `PartnerId`, `Status` | події `SwapAccepted` (створює копію), `SwapCompleted` і `SwapCancelled` (оновлюють статус), див. Лаб. 08 |
+| Прийнятий обмін | Swaps | Messages (`conversations`) | `swapId`, `swapStatus`, `participants` (`userId`, `role`) | події `SwapAccepted` (створює розмову), `SwapCompleted` і `SwapCancelled` (оновлюють `swapStatus`), див. Лаб. 08 |
 | Останнє повідомлення | Messages (`messages`) | Messages (`conversations.lastMessage`) | `messageId`, `senderId`, `preview`, `sentAt` | оновлюється разом із додаванням нового повідомлення |
 | Назва вкладення | Messages (`attachments`) | Messages (`messages.attachments[].fileName`) | `fileName` | задається під час створення повідомлення, назва вкладення не змінюється |
 
@@ -1066,3 +1066,180 @@ curl -k https://localhost:7116/health/ready     # aggregator: redis + три dow
 5. **Бізнес-метрики.** Створіть обмін (`POST /api/swaps`) і змініть статус (`POST /api/swaps/{id}/accept` тощо).
    - Dashboard → Metrics → swaps-api: `swaps.created`, `swaps.status_changed` (фільтр `swap.status`).
    - Там же `swaps.operation.duration` (розподіл за `operation`) і `swaps.cache.entries`.
+
+## Лаб. 08 — події та RabbitMQ
+
+### Що реплікується
+
+Події реалізують політику дублювання з Лаб. 01 (розділ «Політика дублювання даних»): власник прийнятого обміну — Swaps, а Sessions (`AcceptedSwaps`, SQL Server, EF Core) і Messages (`conversations`, MongoDB) тримають свої копії й оновлюють їх лише за подіями. Жоден сервіс не ходить у Swaps по дані: кожна подія самодостатня.
+
+| Подія | Routing key | Коли публікується | Sessions | Messages |
+|---|---|---|---|---|
+| `SwapAcceptedEvent` | `swap.accepted` | партнер прийняв обмін | створює рядок `AcceptedSwaps` | створює розмову з учасниками і системним повідомленням `SwapAccepted` |
+| `SwapCompletedEvent` | `swap.completed` | прийнятий обмін завершено | `Status = Completed` | `swapStatus = Completed` + системне повідомлення |
+| `SwapCancelledEvent` | `swap.cancelled` | скасовано **прийнятий** обмін (для `Pending` копій ще немає, подія не йде) | `Status = Cancelled` | `swapStatus = Cancelled` (розмова стає лише для читання) + системне повідомлення |
+
+Кожна подія несе `SwapId`, `InitiatorId`, `PartnerId`, `Status`, час зміни (`AcceptedAt` / `CompletedAt` / `CancelledAt`) і `ChangedByUserId`. Учасники є в кожній події, тож копію можна створити з будь-якої з них, у будь-якому порядку надходження. Автор зміни потрібен для системного повідомлення в розмові.
+
+`SkillChanged` (власник — Catalog) і `UserDeleted` (Identity) належать до інших піддоменів і тут не реалізовані.
+
+**Контракти.** Події — незмінні `record`-и, успадковані від `IntegrationEvent` (`EventId`, `OccurredAt`, `CorrelationId`, `SchemaVersion`) з `Platform.EventBus`. Видавець тримає їх у `Swaps.Api/IntegrationEvents/Events/`, а кожен споживач має **власну копію** (`Sessions.Api/IntegrationEvents/Events/`, `Messages.WebApi/IntegrationEvents/Events/`), як у eShop. Сервіси не посилаються один на одного. Спільні лише формат (JSON camelCase), ім'я типу у властивості `Type` і версія схеми, тож споживач може змінюватись незалежно від видавця.
+
+### Топологія
+
+Оголошується в `Platform.EventBus/Topology.cs` при старті і видавцем, і кожним споживачем (повторне оголошення безпечне).
+
+| Об'єкт | Тип | Параметри | Прив'язка |
+|---|---|---|---|
+| `swaps-events` | exchange, **topic** | durable | — |
+| `sessions.swaps-sync` | queue | durable, `x-dead-letter-exchange = swaps-events.dlx`, `x-dead-letter-routing-key = sessions.swaps-sync` | до `swaps-events` за `swap.*` |
+| `messages.swaps-sync` | queue | durable, `x-dead-letter-exchange = swaps-events.dlx`, `x-dead-letter-routing-key = messages.swaps-sync` | до `swaps-events` за `swap.*` |
+| `swaps-events.dlx` | exchange, **direct** | durable | — |
+| `sessions.swaps-sync.dlq` | queue | durable | до `swaps-events.dlx` за `sessions.swaps-sync` |
+| `messages.swaps-sync.dlq` | queue | durable | до `swaps-events.dlx` за `messages.swaps-sync` |
+
+- Кожен споживач має свою чергу, тож обидва отримують кожну подію.
+- DLX саме **direct**: черга відправляє «мертве» повідомлення з routing key, що дорівнює її назві, і воно потрапляє лише в її DLQ. Fanout-DLX продублював би його в обидві.
+- AppHost: `AddRabbitMQ("messaging").WithDataVolume().WithManagementPlugin()`, `WithReference(rabbit).WaitFor(rabbit)` для swaps-api, sessions-api, messages-api.
+- У сервісах `AddRabbitMQClient("messaging")` реєструє `IConnection` (RabbitMQ.Client 7, лише асинхронний API).
+- Власні health check і трасування інтеграції вимкнено, натомість:
+  - перевірка `messaging` з тегом `ready` і статусом Degraded видно в `/health/ready`. Без брокера сервіс відповідає на запити, відстає лише реплікація;
+  - використовуються власні spans `Platform.Messaging`.
+
+### Формат повідомлення
+
+| Властивість / заголовок | Значення |
+|---|---|
+| `delivery_mode` | 2 (`Persistent = true`) |
+| `content_type` | `application/json` |
+| `message_id` | `EventId` |
+| `type` | ім'я класу події, наприклад `SwapAcceptedEvent`; за ним споживач обирає обробник |
+| `timestamp` | `OccurredAt` (Unix-секунди) |
+| `correlation_id`, `x-correlation-id` | `X-Correlation-Id` HTTP-запиту, що змінив обмін |
+| `x-schema-version` | `1`; іншу версію споживач відправляє в DLQ |
+| `traceparent`, `tracestate` | W3C trace context |
+| `x-retry-count` | номер повтору (лише в повторно опублікованих повідомленнях) |
+
+```json
+{
+  "swapId": 3002,
+  "initiatorId": "7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02",
+  "partnerId": "b19e6a33-2c5d-47f8-8d14-9a0b3e6f5c03",
+  "status": "Accepted",
+  "acceptedAt": "2026-11-20T19:55:26.7741807Z",
+  "changedByUserId": "b19e6a33-2c5d-47f8-8d14-9a0b3e6f5c03",
+  "eventId": "ab9588c6-ca6c-42aa-96fa-c33fdec90396",
+  "occurredAt": "2026-11-20T19:55:26.7741842Z",
+  "correlationId": "lab08-format-3002",
+  "schemaVersion": 1
+}
+```
+
+### Публікація
+
+`Swaps.Api/IntegrationEvents/PublishingSwapService.cs` — декоратор `ISwapService`. Ланцюжок у DI (зовнішній першим): `MeteredSwapService → PublishingSwapService → CachedSwapService → SwapService`.
+
+1. Спочатку виконується `inner.AcceptAsync / CompleteAsync / CancelAsync`. Якщо зміна в БД не вдалась, виняток іде далі, і подія не публікується.
+2. Після успіху декоратор читає картку обміну. Кеш уже інвалідовано, тож це закомічений стан. Далі він публікує подію з `CorrelationId` запиту.
+
+`RabbitMqEventPublisher`:
+- працює через один `IChannel` під `SemaphoreSlim`, бо канал не потокобезпечний;
+- має **publisher confirms**: `PublishAsync` завершується, лише коли брокер підтвердив прийом;
+- відкриває Activity типу Producer `swaps-events publish`.
+
+Після публікації в лог іде `Published {EventType} {EventId} to {Exchange}/{RoutingKey} for swap {SwapId}, correlation {CorrelationId}`.
+
+**Outbox (не реалізовано).** Між commit у БД і публікацією є вікно: якщо брокер недоступний (тайм-аут публікації 5 с) або процес впаде саме тоді, зміна в Swaps залишиться, а подія загубиться. Тоді копії в Sessions і Messages розійдуться з джерелом. Зараз збій публікації лише логується як Error з бізнес-контекстом (`Failed to publish {EventType} for swap {SwapId}…`), а запит завершується успішно, бо зміна вже збережена. Надійне рішення — Transactional Outbox:
+- таблиця `OutboxMessages` у `QPQ_Swaps`;
+- подія записується в одній транзакції зі зміною статусу;
+- фоновий сервіс читає непубліковані записи, публікує їх і позначає відправленими (at-least-once; дублікати споживачі вже відкидають).
+
+Тут зміна статусу виконується збереженою процедурою поза транзакцією Unit of Work, тому outbox вимагав би переписати BLL/DAL Swaps. Це свідомо лишено поза межами лаби.
+
+### Споживання, ack і повтори
+
+`Platform.EventBus/RabbitMqConsumerBase.cs` — спільний `BackgroundService`. Конкретні `SwapEventsConsumer` у `Sessions.Api/IntegrationEvents/` і `Messages.WebApi/IntegrationEvents/` лише називають свою чергу й типи подій.
+
+Запуск:
+1. `CreateChannelAsync`;
+2. `Topology.DeclareAsync`;
+3. `BasicQosAsync(0, 10, false)`;
+4. `AsyncEventingBasicConsumer` (`ReceivedAsync`);
+5. `BasicConsumeAsync(autoAck: false)`.
+
+Під час зупинки канал закривається, а повідомлення, що оброблялось, повертається в чергу (`nack requeue: true`). Кожне повідомлення обробляється у власному DI-scope окремим обробником: `SwapAcceptedHandler`, `SwapCompletedHandler`, `SwapCancelledHandler`.
+
+| Результат | Дія | Лог |
+|---|---|---|
+| успіх або дублікат | `BasicAckAsync` | `Acked …` (і `Duplicate event {EventId} skipped`) |
+| постійний збій: некоректний JSON, невідомий `Type`, непідтримувана `x-schema-version`, порушення доменних правил | `BasicNackAsync(requeue: false)` → DLX → DLQ своєї черги | Error `Dead-lettered … : {Reason}` |
+| тимчасовий збій: БД недоступна, тайм-аут, інші винятки | пауза 1·2ⁿ с, повторна публікація того самого тіла з `x-retry-count + 1` **у ту саму чергу** (default exchange, routing key = назва черги), потім ack оригіналу | Warning `Retry {Attempt}/3 …` |
+| тимчасовий збій, `x-retry-count` ≥ 3 | `BasicNackAsync(requeue: false)` → DLQ | Error `Dead-lettered … after 3/3 retries` |
+
+- Повтор іде лише у власну чергу. Через `swaps-events` подію вдруге отримав би й інший сервіс, який її вже обробив.
+- Значення `x-retry-count` може прийти як `int`, `long` або `byte[]`, і всі варіанти обробляються.
+- Усі логи структуровані: `{EventId}`, `{EventType}`, `{SwapId}`, `{CorrelationId}`, `{Queue}`, `{Attempt}`; винятки — з повним stack trace. На час обробки `CorrelationId`, `EventId`, `EventType`, `Queue`, `Attempt` додаються в `LogContext`.
+
+### Ідемпотентність і порядок подій
+
+**Sessions (SQL Server, EF Core):**
+- таблиця `ProcessedEvents (EventId PK, ProcessedAt, EventType)` і колонка `AcceptedSwaps.StatusChangedAt` (міграція `AddSwapEventReplication`);
+- `AcceptedSwapReplicator` змінює копію та додає `ProcessedEvent` одним `SaveChanges`, тобто в одній транзакції: подія або застосована й запам'ятована, або ні те, ні інше;
+- наявний `EventId` або порушення PK `PK_ProcessedEvents` (SqlException 2627/2601) → `Duplicate event {EventId} skipped`, ack;
+- статус застосовується доменним методом `AcceptedSwap.ApplyReplicatedStatus` лише тоді, коли подія новіша за `StatusChangedAt`. Тому запізнілий `SwapAccepted` не відкотить `Completed`.
+
+**Messages (MongoDB):** Mongo в Aspire запущено як один вузол, а не replica set, тому транзакції недоступні й не вмикаються. Натомість кожен крок `ConversationReplicator` ідемпотентний сам по собі:
+1. Розмова створюється один раз на обмін: унікальний індекс `ux_conversations_swap`, дублікат ключа означає «вже є». Разом із нею створюється системне повідомлення `SwapAccepted`.
+2. Статус змінює `UpdateMany` за `swapId` з фільтром «статус інший **і** `swapStatusUpdatedAt` відсутній або старший за час події». Повтор або запізніла подія нічого не змінюють. Системне повідомлення додається, лише якщо документ справді змінився.
+3. Насамкінець `EventId` записується в `processed_events` (унікальний індекс `ux_processed_events_event`, створюється при старті разом з іншими індексами). Дублікат ключа означає, що іншу доставку вже завершено.
+
+Збій між кроками призводить до повтору, і повтор виконує лише ще не зроблені кроки. `swapStatusUpdatedAt` є полем `Conversation`, тому REST-оновлення розмови (наприклад, позначка прочитання) його не стирають.
+
+Кешу цих даних у Sessions і Messages немає. Зведена картка в Aggregator застаріває не більше ніж на свої 30 с.
+
+### Трасування
+
+`Platform.EventBus/TracePropagation.cs`:
+- `ActivitySource("Platform.Messaging")`, підключено в ServiceDefaults;
+- видавець пише `traceparent`/`tracestate` у заголовки (`Propagators.DefaultTextMapPropagator`);
+- споживач відновлює контекст (значення заголовків приходять як `byte[]`) і відкриває Activity типу Consumer `{queue} process` з тегами `messaging.system`, `messaging.destination.name`, `messaging.message.id`, `messaging.operation = process`, `messaging.message.type`.
+
+Результат — один trace:
+```
+gateway → swaps-api POST /api/swaps/{id}/accept → swaps-events publish
+  ├─ sessions.swaps-sync process → SQL
+  └─ messages.swaps-sync process → MongoDB
+```
+
+### Management UI
+
+У Dashboard → Resources → `messaging` є посилання на ендпоінт management. Логін `guest`. Пароль Aspire згенерував як параметр `messaging-password`: його видно в Dashboard (ресурс `messaging-password`, кнопка показу значення) або командою `dotnet user-secrets list --project Platform.AppHost` (ключ `Parameters:messaging-password`).
+
+### Як відтворити
+
+```bash
+U2=7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02; P=b19e6a33-2c5d-47f8-8d14-9a0b3e6f5c03
+curl -X POST http://localhost:5000/api/swaps -H "X-User-Id: $U2" -H "Content-Type: application/json" \
+  -d "{\"partnerId\":\"$P\",\"offeredSkillId\":4,\"requestedSkillId\":6}"         # → id
+curl -X POST http://localhost:5000/api/swaps/{id}/accept   -H "X-User-Id: $P"  -H "Content-Type: application/json" -d '{}'
+curl http://localhost:5000/api/accepted-swaps/{id}/sessions -H "X-User-Id: $U2"   # копія в Sessions
+curl http://localhost:5000/api/conversations -H "X-User-Id: $U2"                  # розмова в Messages
+curl -X POST http://localhost:5000/api/swaps/{id}/complete -H "X-User-Id: $U2" -H "Content-Type: application/json" -d '{}'
+```
+
+1. **Реплікація.** Після accept за секунду з'являються рядок `AcceptedSwaps` і розмова з `swapStatus = Accepted`. Після complete обидві копії мають `Completed`, у розмові є системні повідомлення `SwapAccepted` і `SwapCompleted`.
+2. **Формат повідомлення.** У Management UI додайте тимчасову чергу з прив'язкою до `swaps-events` за `swap.*` і прийміть обмін. Get message покаже `message_id`, `type`, `x-correlation-id`, `traceparent`.
+3. **Дублікат.**
+   - Exchanges → `swaps-events` → Publish message з тими самими властивостями (`message_id`, `type`) і тілом.
+   - В обох сервісах у логах `Duplicate event … skipped`, дані не змінюються.
+4. **Некоректний JSON.**
+   - Exchanges → `(AMQP default)` → Publish message з routing key `sessions.swaps-sync`, властивістю `type = SwapAcceptedEvent` і тілом `{ not json`.
+   - Повідомлення одразу опиняється в `sessions.swaps-sync.dlq`, і **лише** в ній (`x-death`: `rejected`). У логах Error `Dead-lettered … JsonException`.
+5. **Повтори.**
+   - Зупиніть `sql` і опублікуйте подію (accept неможливий, бо Swaps теж на `sql`): у Management UI через `swaps-events` з новим `eventId`.
+   - Sessions пише `Retry 1/3`, `2/3`, `3/3` (паузи 1, 2, 4 с), потім `Dead-lettered … after 3/3 retries`, і подія в `sessions.swaps-sync.dlq`. Messages обробляє ту саму подію без проблем.
+   - Після запуску `sql` нові події знову обробляються.
+6. **Недоступний споживач.**
+   - Зупиніть `sessions-api`, прийміть і завершіть кілька обмінів. Події накопичуються в `sessions.swaps-sync` (consumers = 0).
+   - Після запуску `sessions-api` усі вони обробляються. Черга durable, повідомлення persistent, а в RabbitMQ є data volume, тож вони переживають і перезапуск брокера.
+7. **Trace.** Dashboard → Traces, запит `POST /api/swaps/{id}/accept`. Один trace містить publish і два process з SQL- і Mongo-spans.
