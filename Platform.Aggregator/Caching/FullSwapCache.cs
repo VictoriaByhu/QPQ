@@ -17,6 +17,10 @@ public sealed class FullSwapCache(
     // Each failed Redis call can block for the client timeout, so Redis is skipped for a while after a failure.
     private static readonly TimeSpan RedisCooldown = TimeSpan.FromSeconds(30);
 
+    // The Redis client ignores cancellation and an unreachable server can hold a call for its full client timeout;
+    // past this limit the cache gives up and the card is assembled from the services.
+    private static readonly TimeSpan RedisCallLimit = TimeSpan.FromSeconds(1);
+
     private long _redisRetryAtTicks;
 
     public async Task<FullSwapDto?> TryGetAsync(int swapId, Guid userId, CancellationToken ct)
@@ -26,7 +30,7 @@ public sealed class FullSwapCache(
         {
             try
             {
-                var bytes = await cache.GetAsync(key, ct);
+                var bytes = await cache.GetAsync(key, ct).WaitAsync(RedisCallLimit, ct);
                 if (bytes is not null && JsonSerializer.Deserialize<FullSwapDto>(bytes, JsonSerializerOptions.Web) is { } cached)
                 {
                     metrics.Hit();
@@ -66,7 +70,7 @@ public sealed class FullSwapCache(
                 key,
                 JsonSerializer.SerializeToUtf8Bytes(value, JsonSerializerOptions.Web),
                 new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = Ttl },
-                ct);
+                ct).WaitAsync(RedisCallLimit, ct);
             logger.LogInformation("Cache set {Key} ttl {Ttl}", key, Ttl);
         }
         catch (Exception ex) when (IsRedisOutage(ex))
@@ -84,8 +88,8 @@ public sealed class FullSwapCache(
 
     private bool IsRedisCoolingDown() => DateTime.UtcNow.Ticks < Interlocked.Read(ref _redisRetryAtTicks);
 
-    // A down or slow server; anything else is handled by the general fallback.
-    private static bool IsRedisOutage(Exception ex) => ex is RedisConnectionException or RedisTimeoutException;
+    // A down or slow server (TimeoutException also covers RedisCallLimit); anything else is handled by the general fallback.
+    private static bool IsRedisOutage(Exception ex) => ex is RedisConnectionException or RedisTimeoutException or TimeoutException;
 
     private void StartCooldown() => Interlocked.Exchange(ref _redisRetryAtTicks, DateTime.UtcNow.Add(RedisCooldown).Ticks);
 

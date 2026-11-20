@@ -20,6 +20,10 @@ public sealed class TwoLevelCache(
     // Each failed Redis call can block for the client timeout, so reads skip Redis for a while after a failure.
     private static readonly TimeSpan RedisCooldown = TimeSpan.FromSeconds(30);
 
+    // The Redis client ignores cancellation and an unreachable server can hold a call for its full client timeout,
+    // longer than the callers' own deadlines; past this limit the cache gives up and the request uses the database.
+    private static readonly TimeSpan RedisCallLimit = TimeSpan.FromSeconds(1);
+
     private long _redisRetryAtTicks;
 
     public async Task<T?> GetOrCreateAsync<T>(
@@ -104,7 +108,7 @@ public sealed class TwoLevelCache(
 
         try
         {
-            return await distributed.GetAsync(key, ct);
+            return await distributed.GetAsync(key, ct).WaitAsync(RedisCallLimit, ct);
         }
         catch (Exception ex) when (IsRedisOutage(ex))
         {
@@ -127,7 +131,7 @@ public sealed class TwoLevelCache(
         try
         {
             await distributed.SetAsync(key, bytes,
-                new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = ttl.L2 }, ct);
+                new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = ttl.L2 }, ct).WaitAsync(RedisCallLimit, ct);
         }
         catch (Exception ex) when (IsRedisOutage(ex))
         {
@@ -145,7 +149,7 @@ public sealed class TwoLevelCache(
     {
         try
         {
-            await distributed.RemoveAsync(key, ct);
+            await distributed.RemoveAsync(key, ct).WaitAsync(RedisCallLimit, ct);
         }
         catch (Exception ex) when (IsRedisOutage(ex))
         {
@@ -160,8 +164,8 @@ public sealed class TwoLevelCache(
 
     private bool IsRedisCoolingDown() => DateTime.UtcNow.Ticks < Interlocked.Read(ref _redisRetryAtTicks);
 
-    // A down or slow server; anything else is handled by the general fallback below it.
-    private static bool IsRedisOutage(Exception ex) => ex is RedisConnectionException or RedisTimeoutException;
+    // A down or slow server (TimeoutException also covers RedisCallLimit); anything else is handled by the general fallback.
+    private static bool IsRedisOutage(Exception ex) => ex is RedisConnectionException or RedisTimeoutException or TimeoutException;
 
     private void StartCooldown() => Interlocked.Exchange(ref _redisRetryAtTicks, DateTime.UtcNow.Add(RedisCooldown).Ticks);
 
