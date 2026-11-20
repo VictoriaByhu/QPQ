@@ -1,44 +1,64 @@
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
+using MongoDB.Driver;
 using QPQ.Reviews.Application;
+using QPQ.Reviews.Application.Caching;
+using QPQ.Reviews.Application.Interfaces;
 using QPQ.Reviews.Infrastructure;
-using QPQ.Reviews.WebApi.Grpc; // Простір імен для gRPC сервісу та Інтерцептора
-using QPQ.Reviews.Application.Caching; // Простір імен для Метрик кешу
+using QPQ.Reviews.WebApi.Grpc;
+using QPQ.Reviews.WebApi.Metrics;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Інтеграція .NET Aspire (Лаб 05 - ServiceDefaults)
+// 1. Інтеграція .NET Aspire (ServiceDefaults)
 builder.AddServiceDefaults();
 
-// 2. Підключення баз даних та кешу (Лаб 06)
+// 2. Підключення баз даних та кешу
 builder.AddMongoDBClient("ReviewsDb");
-builder.AddRedisDistributedCache("redis"); // Підключаємо Redis через Aspire
+builder.AddRedisDistributedCache("redis");
 
-// Реєстрація мапінгу MongoDB (має бути до ініціалізації бази даних)
+// Реєстрація мапінгу MongoDB
 QPQ.Reviews.Infrastructure.Persistence.MongoMappings.Register();
 
 // Реєстрація шарів Clean Architecture
 builder.Services.AddApplication();
 builder.Services.AddInfrastructureServices(builder.Configuration);
 
-// Пряма реєстрація IReviewQueries для читання
-builder.Services.AddScoped<QPQ.Reviews.Application.Interfaces.IReviewQueries, QPQ.Reviews.Infrastructure.Repositories.ReviewQueries>();
+builder.Services.AddScoped<IReviewQueries, QPQ.Reviews.Infrastructure.Repositories.ReviewQueries>();
 
 builder.Services.AddControllers();
 
 // ==========================================
-// 3. Кешування, gRPC та Метрики (Лаб 06)
+// 3. Кешування, gRPC та Метрики (Лаб 06–07)
 // ==========================================
-
-// Реєструємо власні метрики для кешу (Критерій 14)
 builder.Services.AddSingleton<CacheMetrics>();
+builder.Services.AddSingleton<IReviewsMetrics, ReviewsMetrics>();
 
-// Локальний кеш у пам'яті з лімітом (Критерій 3)
 builder.Services.AddMemoryCache(o => o.SizeLimit = 10_000);
 
-// Додаємо підтримку gRPC з серверним інтерцептором для логування (Критерій 13)
 builder.Services.AddGrpc(o => o.Interceptors.Add<LoggingInterceptor>());
+
+// ==========================================
+// 4. Health Checks (Лаб 07: MongoDB, Redis, gRPC)
+// ==========================================
+builder.Services.AddHealthChecks()
+    .AddMongoDb(
+        sp => sp.GetRequiredService<IMongoClient>(),
+        name: "reviews-db",
+        failureStatus: HealthStatus.Unhealthy,
+        tags: ["database", "mongodb", "ready"],
+        timeout: TimeSpan.FromSeconds(5))
+    .AddRedis(
+        redisConnectionString: builder.Configuration.GetConnectionString("redis")!,
+        name: "redis-cache",
+        failureStatus: HealthStatus.Degraded, // кеш необов'язковий
+        tags: ["cache", "redis", "ready"],
+        timeout: TimeSpan.FromSeconds(3));
+
+builder.Services.AddGrpcHealthChecks();
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -65,8 +85,9 @@ app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
 
-// 4. Мапінг нових ендпоінтів (Лаб 05 та 06)
-app.MapDefaultEndpoints(); // Health checks та інші ендпоінти від ServiceDefaults
-app.MapGrpcService<ReviewsGrpcService>(); // Мапінг нашого gRPC сервісу
+// 5. Мапінг ендпоінтів (Health Checks + gRPC)
+app.MapDefaultEndpoints();
+app.MapGrpcService<ReviewsGrpcService>();
+app.MapGrpcHealthChecksService();
 
 app.Run();
