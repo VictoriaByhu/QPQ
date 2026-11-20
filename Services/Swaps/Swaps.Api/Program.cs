@@ -3,6 +3,7 @@ using Microsoft.OpenApi.Models;
 using Platform.ServiceDefaults;
 using Platform.ServiceDefaults.Grpc;
 using Swaps.Api.Grpc;
+using Swaps.Api.Metrics;
 using Swaps.Api.Middleware;
 using Swaps.Api.Services;
 using Swaps.Bll.Caching;
@@ -18,17 +19,23 @@ builder.AddRedisDistributedCache("redis");
 var connectionString = builder.Configuration.GetConnectionString("SwapsDb")
     ?? throw new InvalidOperationException("Connection string 'SwapsDb' is missing");
 
-builder.Services.AddMemoryCache(o => o.SizeLimit = 10_000);
+builder.Services.AddMemoryCache(o =>
+{
+    o.SizeLimit = 10_000;
+    o.TrackStatistics = true;
+});
 builder.Services.AddSingleton<CacheMetrics>();
 builder.Services.AddSingleton<TwoLevelCache>();
+builder.Services.AddSingleton<SwapMetrics>();
 
 builder.Services.AddScoped<IUnitOfWork>(_ => new UnitOfWork(connectionString));
 builder.Services.AddScoped<SwapService>();
 builder.Services.AddScoped<SkillService>();
 builder.Services.AddScoped(sp =>
     ActivatorUtilities.CreateInstance<CachedSwapService>(sp, (ISwapService)sp.GetRequiredService<SwapService>()));
-builder.Services.AddScoped<ISwapService>(sp => sp.GetRequiredService<CachedSwapService>());
-builder.Services.AddScoped<ISwapCardReader>(sp => sp.GetRequiredService<CachedSwapService>());
+builder.Services.AddScoped<MeteredSwapService>();
+builder.Services.AddScoped<ISwapService>(sp => sp.GetRequiredService<MeteredSwapService>());
+builder.Services.AddScoped<ISwapCardReader>(sp => sp.GetRequiredService<MeteredSwapService>());
 builder.Services.AddScoped<ISkillService>(sp =>
     ActivatorUtilities.CreateInstance<CachedSkillService>(sp, (ISkillService)sp.GetRequiredService<SkillService>()));
 
