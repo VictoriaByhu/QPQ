@@ -12,6 +12,9 @@ public sealed class Conversation : BaseEntity
 
     public int SwapId { get; private set; }
     public SwapStatus SwapStatus { get; private set; }
+
+    /// <summary>When the status replicated from Swaps last changed; older swap events are ignored.</summary>
+    public DateTime? SwapStatusUpdatedAt { get; private set; }
     public LastMessage? LastMessage { get; private set; }
     public IReadOnlyCollection<Participant> Participants => _participants.AsReadOnly();
 

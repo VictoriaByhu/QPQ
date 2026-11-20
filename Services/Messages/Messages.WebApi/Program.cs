@@ -1,6 +1,8 @@
 using System.Text.Json.Serialization;
 using MediatR;
 using Messages.WebApi.HealthChecks;
+using Messages.WebApi.IntegrationEvents;
+using Platform.EventBus;
 using Messages.WebApi.Metrics;
 using Microsoft.OpenApi.Models;
 using Platform.ServiceDefaults;
@@ -19,6 +21,16 @@ builder.Services
     .AddInfrastructure(builder.Configuration);
 
 builder.Services.AddMessagesHealthChecks();
+
+// Our own broker check (tagged ready, Degraded) and tracing spans replace the integration's ones.
+builder.AddRabbitMQClient("messaging", settings =>
+{
+    settings.DisableHealthChecks = true;
+    settings.DisableTracing = true;
+});
+builder.Services.AddEventBus();
+builder.Services.AddSwapEventsConsumer();
+builder.Services.AddHostedService<SwapEventsConsumer>();
 
 builder.Services.AddSingleton<MessageMetrics>();
 builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(MessageMetricsBehavior<,>));

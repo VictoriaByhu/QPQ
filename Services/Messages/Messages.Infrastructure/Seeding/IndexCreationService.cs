@@ -15,6 +15,7 @@ public sealed class IndexCreationService(MongoDbContext context, ILogger<IndexCr
             await CreateConversationIndexesAsync(cancellationToken);
             await CreateMessageIndexesAsync(cancellationToken);
             await CreateAttachmentIndexesAsync(cancellationToken);
+            await CreateProcessedEventIndexesAsync(cancellationToken);
             logger.LogInformation("MongoDB indexes are up to date");
         }
         catch (Exception ex) when (ex is MongoException or TimeoutException)
@@ -70,4 +71,12 @@ public sealed class IndexCreationService(MongoDbContext context, ILogger<IndexCr
                 new CreateIndexOptions { Name = "ix_attachments_conversation_uploadedAt" })
         ], ct);
     }
+
+    // Idempotent consumption of integration events: the second insert of the same eventId fails.
+    private Task CreateProcessedEventIndexesAsync(CancellationToken ct)
+        => context.ProcessedEvents.Indexes.CreateOneAsync(
+            new CreateIndexModel<ProcessedEvent>(
+                Builders<ProcessedEvent>.IndexKeys.Ascending(e => e.EventId),
+                new CreateIndexOptions { Name = "ux_processed_events_event", Unique = true }),
+            cancellationToken: ct);
 }

@@ -10,6 +10,7 @@ public sealed class MongoDbContext
     public const string ConversationsCollection = "conversations";
     public const string MessagesCollection = "messages";
     public const string AttachmentsCollection = "attachments";
+    public const string ProcessedEventsCollection = "processed_events";
 
     public MongoDbContext(IOptions<MongoDbOptions> options)
     {
@@ -30,4 +31,7 @@ public sealed class MongoDbContext
 
     public IMongoCollection<Attachment> Attachments
         => Database.GetCollection<Attachment>(AttachmentsCollection);
+
+    public IMongoCollection<ProcessedEvent> ProcessedEvents
+        => Database.GetCollection<ProcessedEvent>(ProcessedEventsCollection);
 }

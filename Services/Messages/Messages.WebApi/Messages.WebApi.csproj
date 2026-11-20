@@ -22,6 +22,7 @@
     <ProjectReference Include="..\Messages.Application\Messages.Application.csproj" />
     <ProjectReference Include="..\Messages.Infrastructure\Messages.Infrastructure.csproj" />
     <ProjectReference Include="..\..\..\Platform.ServiceDefaults\Platform.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\..\..\Platform.EventBus\Platform.EventBus.csproj" />
   </ItemGroup>
 
 </Project>
