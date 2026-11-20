@@ -15,6 +15,9 @@ public class AcceptedSwap
     public string Status { get; private set; } = AcceptedSwapStatuses.Accepted;
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
+
+    /// <summary>When the swap reached its current status in Swaps; null for rows seeded before replication.</summary>
+    public DateTime? StatusChangedAt { get; private set; }
     public byte[] RowVersion { get; private set; } = [];
 
     public IReadOnlyCollection<Session> Sessions => _sessions;
@@ -49,6 +52,21 @@ public class AcceptedSwap
     {
         SetStatus(status);
         UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Applies a status replicated from Swaps unless a newer change is already applied,
+    /// so a late or redelivered event never rolls the status back. Returns whether anything changed.
+    /// </summary>
+    public bool ApplyReplicatedStatus(string status, DateTime changedAt)
+    {
+        if (StatusChangedAt is { } applied && applied >= changedAt)
+            return false;
+
+        SetStatus(status);
+        StatusChangedAt = changedAt;
+        UpdatedAt = DateTime.UtcNow;
+        return true;
     }
 
     private void SetStatus(string status)

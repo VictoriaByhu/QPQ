@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Sessions.Dal.Entities;
 using Sessions.Domain.Models;
 
 namespace Sessions.Dal;
@@ -11,6 +12,7 @@ public class SessionsDbContext(DbContextOptions<SessionsDbContext> options) : Db
     public DbSet<Session> Sessions => Set<Session>();
     public DbSet<SessionSkill> SessionSkills => Set<SessionSkill>();
     public DbSet<SessionOutcome> SessionOutcomes => Set<SessionOutcome>();
+    public DbSet<ProcessedEvent> ProcessedEvents => Set<ProcessedEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
         => modelBuilder.ApplyConfigurationsFromAssembly(typeof(SessionsDbContext).Assembly);
