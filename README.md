@@ -830,7 +830,7 @@ db.messages.getIndexes()
 | `aggregator` | `Platform.Aggregator` | повна картка обміну |
 | `gateway` | `Platform.ApiGateway` | єдина точка входу (YARP), порт 5000 |
 
-`Platform.ServiceDefaults` підключається в кожен сервіс через `builder.AddServiceDefaults()` і дає Serilog (JSON у консоль), OpenTelemetry (логи, метрики, трасування з SQL і MongoDB spans), service discovery, resilience для HttpClient, `/health` і `/alive`, а також наскрізний `X-Correlation-Id`.
+`Platform.ServiceDefaults` підключається в кожен сервіс через `builder.AddServiceDefaults()` і дає Serilog (JSON у консоль), OpenTelemetry (логи, метрики, трасування з SQL і MongoDB spans), service discovery, resilience для HttpClient, health-ендпоінти (див. Лаб. 07), а також наскрізний `X-Correlation-Id`.
 
 База `QPQ_Swaps` створюється під час першого запуску скриптами `db/p1/schema.sql`, `procedures.sql` і `seed.sql`. AppHost читає їх з диска і передає в `WithCreationScript`, Aspire виконує їх пакетами за розділювачем `GO`. Sessions застосовує міграції EF Core і початкові дані при старті, Messages створює індекси та сідить дані сам. Дані зберігаються в Docker volume, повторний запуск їх не дублює.
 
@@ -890,7 +890,7 @@ curl -i http://localhost:5000/api/aggregator/swaps/2/full -H "X-User-Id: $U2"
 
 1. У Dashboard зупиніть ресурс `messages-api` (кнопка Stop).
 2. Повторіть `curl -i http://localhost:5000/api/aggregator/swaps/2/full -H "X-User-Id: $U2"`.
-3. Відповідь лишається 200: `messages` порожній, а в `warnings` з'являється `"messages-api is unavailable"`. В Aggregator записується попередження в лог, а така відповідь не кешується. Відповідь може затриматися приблизно на 10 секунд: це дедлайн gRPC-виклику.
+3. Відповідь лишається 200: `messages` порожній, а в `warnings` з'являється `"messages-api is unavailable"`. В Aggregator записується попередження в лог, а така відповідь не кешується. Затримка не перевищує дедлайн виклику messages-api (5 с, див. Лаб. 07).
 4. Запустіть `messages-api` знову (Start).
 
 ### Спостережуваність
@@ -959,3 +959,110 @@ grpcurl -insecure -import-path Services/Swaps/Swaps.Api/Protos -proto swaps.prot
 4. **Часткова відповідь.** Зупиніть `sessions-api`: Aggregator повертає 200 із `warnings`, і повторний запит знову звертається до сервісів.
 5. **Кеш Aggregator.** Повторіть запит повної картки протягом 30 с: у логах Aggregator є `Cache hit aggregator:swap:2:full:... at L2`.
 6. **Метрики.** Dashboard → Metrics → `swaps-api` або `aggregator`: лічильники `cache.hits` і `cache.misses` з тегом `cache.level`, у `swaps-api` також `cache.invalidations`.
+
+## Лаб. 07 — резильєнтність, метрики, health checks
+
+### Критичність сервісів
+
+Aggregator спершу обов'язково читає обмін зі `swaps-api`: без нього картку не зібрати, відповідь буде 404 або 503. Сесії й повідомлення читаються паралельно і можуть бути відсутні, тоді відповідь часткова з `warnings`. Тому, на відміну від методички (де критичний каталог), у нас **критичний `swaps-api`**, а `sessions-api` і `messages-api` некритичні. Повідомлення найменш важливі, тож для них Aggregator здається найшвидше.
+
+### Політики клієнтів Aggregator
+
+`AddStandardResilienceHandler()` у `ConfigureHttpClientDefaults` (ServiceDefaults) лишається обробником за замовчуванням для всіх HttpClient і gRPC-клієнтів. Клієнти Aggregator спершу знімають його (`RemoveAllResilienceHandlers()`), а потім додають власний (`AddStandardResilienceHandler().Configure(...)`), тож обробники не нашаровуються. Усі значення зібрано в одному місці: `Platform.Aggregator/Resilience/ResiliencePolicies.cs`.
+
+| Клієнт | HTTP retry | gRPC MaxAttempts (backoff) | AttemptTimeout | TotalTimeout = дедлайн | CB FailureRatio | MinThroughput | Sampling | Break |
+|---|---|---|---|---|---|---|---|---|
+| `swaps-api` | 2, 0.5 с exp + jitter | 5 (0.5 → 4 с) | 3 с | 20 с | 0.3 | 5 | 30 с | 15 с |
+| `sessions-api` | 1, 0.5 с exp + jitter | 3 (0.5 → 2 с) | 2 с | 8 с | 0.5 | 5 | 20 с | 15 с |
+| `messages-api` | 1, 0.5 с exp + jitter | 2 (0.5 → 1 с) | 2 с | 5 с | 0.7 | 5 | 10 с | 10 с |
+
+- **swaps-api:** без обміну картки немає, тому найбільше спроб і найдовший загальний час. Найнижчий `FailureRatio` (0.3) розмикає ланцюг раніше: якщо сервіс справді лежить, краще швидко віддати 503, ніж тримати запити.
+- **sessions-api:** без сесій картка все одно буде, лише з попередженням. Тому менше спроб і коротший тайм-аут.
+- **messages-api:** найменш важливі дані. Одна повторна спроба, 5 с на все, найтолерантніший `FailureRatio` (0.7): поодинокі збої не відрізають повідомлення від усіх користувачів.
+- **Чому HTTP-retry малий (2/1/1).** Повтори є на двох рівнях: Polly-retry на рівні HTTP і `RetryPolicy` gRPC-каналу. Коли сервіс недоступний, вони множаться: при 5 HTTP-спробах × 5 gRPC-спробах вийшло б 25 звернень до одного сервісу. Тому основну роботу робить gRPC `RetryPolicy`, а HTTP-retry зменшено до мінімуму (Polly не дозволяє 0).
+- **Чому потрібен gRPC `RetryPolicy`.** gRPC передає статус у трейлерах відповіді з HTTP 200, тому HTTP-обробник Polly помилку не бачить. Кожен gRPC-клієнт отримує `ServiceConfig` з `RetryPolicy`, і канал сам повторює `Unavailable` і `ResourceExhausted`. Статуси `NotFound`, `PermissionDenied`, `InvalidArgument`, `Unauthenticated` не повторюються: це відповідь сервісу, а не збій. Усі наші gRPC-методи лише читають дані, тому повтор безпечний.
+- **Таймаути.** `TotalRequestTimeout` ≥ спроба × кількість спроб + затримки. Дедлайн gRPC-виклику в `FullSwapService` дорівнює `TotalTimeout` клієнта (замість фіксованих 10 с). Він обмежує сумарний час усіх повторів обох рівнів і не обрізає повтори одного рівня.
+- **Circuit breaker.** `MinimumThroughput` = 5, щоб ланцюг можна було розімкнути на навчальному стенді. `SamplingDuration` ≥ 2 × `AttemptTimeout` (вимога валідації). Переходи логуються з назвою клієнта: `OnOpened` як Error (з `BreakDuration`), `OnHalfOpened` і `OnClosed` як Information. Логер береться з `ILoggerFactory` контейнера. Коли ланцюг розімкнений, `BrokenCircuitException` доходить до каналу як `Internal`, gRPC його не повторює, і запит відхиляється одразу.
+- **Retry для небезпечних методів** вимкнено (`DisableForUnsafeHttpMethods`), але з винятком для gRPC. gRPC надсилає кожен виклик як POST, тож без винятку HTTP-retry для gRPC-клієнтів не спрацював би ніколи. Запити з `Content-Type: application/grpc` (а всі наші методи — читання) зберігають стандартні правила транзитних збоїв, решта небезпечних методів не повторюється (`AllowRetryOnlyForGrpcReads`).
+- **Зупинений через Aspire сервіс** не відмовляє в з'єднанні: проксі Aspire приймає його й мовчить. Тому спроба завершується за `AttemptTimeout`. Це Polly-тайм-аут, а не статус `Unavailable`, тож у цьому випадку повторює HTTP-retry, а gRPC `RetryPolicy` спрацьовує, коли сервіс сам повертає `Unavailable` / `ResourceExhausted` або коли з'єднання розривається.
+
+### Деградація при збої Redis
+
+`TwoLevelCache` (Swaps) і `FullSwapCache` (Aggregator) перехоплюють `RedisConnectionException` і `RedisTimeoutException`. Вони пишуть Warning `Redis unavailable, falling back to database for {Key}` (в Aggregator: `... falling back to downstream services ...`) або `Redis unavailable, value for {Key} not cached` і пропускають Redis на 30 с. Інші помилки обробляє загальний fallback. Клієнт Redis не зважає на `CancellationToken`, а недоступний сервер може тримати виклик до свого тайм-ауту (понад 10 с) — довше за `AttemptTimeout` Aggregator-а. Тому кожна операція з Redis обмежена 1 с (`WaitAsync`); перевищення трактується як збій Redis. Запит ніколи не падає через Redis.
+
+### Бізнес-метрики
+
+Класи метрик — синглтони, створені через `IMeterFactory`. Виклики стоять у декораторах і pipeline behavior, тому BLL і обробники не змінювалися. Лічильник збільшується лише після успішної операції. Гістограма записує тривалість і для невдалих операцій.
+
+| Meter | Інструмент | Тип, одиниця | Теги та значення |
+|---|---|---|---|
+| `Swaps.Api` | `swaps.created` | Counter, `{swap}` | `swap.status` = `Pending` |
+| | `swaps.status_changed` | Counter, `{swap}` | `swap.status` = `Accepted` / `Rejected` / `Cancelled` / `Completed` |
+| | `swaps.operation.duration` | Histogram, `ms` | `operation` = `create` / `accept` / `reject` / `cancel` / `complete` / `get_card`; `status` = `success` / `failure` |
+| | `swaps.cache.entries` | ObservableGauge, `{entry}` | — (з `IMemoryCache.GetCurrentStatistics()`, без запитів до БД) |
+| `Sessions.Api` | `sessions.created`, `sessions.rescheduled` | Counter, `{session}` | `session.format` = `Online` / `InPerson` |
+| | `sessions.operation.duration` | Histogram, `ms` | `operation` = `create` / `reschedule` / `complete` / `cancel` / `get`; `status` |
+| `Messages.WebApi` | `messages.sent` | Counter, `{message}` | `message.type` = `text` / `file` |
+| | `messages.operation.duration` | Histogram, `ms` | `operation` = `send_text` / `send_file` / `get_swap_conversation`; `status` |
+| `Polly` | `resilience.polly.strategy.events` | Counter | `event.name` = `OnRetry` / `OnCircuitOpened` / `OnCircuitHalfOpened` / `OnCircuitClosed` / `OnTimeout`, `pipeline.name` |
+
+- Тегів з UserId, SwapId, CorrelationId чи часом немає: лише значення з малих фіксованих наборів.
+- Межі кошиків гістограм: 1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000 мс.
+- Нормальні діапазони на локальному стенді:
+  - `get_card` з кешу — одиниці мс, з БД — 10–50 мс;
+  - запис (`create`, зміна статусу, `reschedule`, `send_*`) — 10–100 мс;
+  - понад 500 мс — сигнал проблеми (так само, як поріг `PerformanceBehavior` у Messages).
+- `swaps.cache.entries` у межах `SizeLimit` = 10 000. `failure` має бути рідкісним, переважно 404/409 від бізнес-правил.
+- `Polly`-події з `event.name = OnRetry` у нормі відсутні.
+- Усі meter-и, а також `Swaps.Cache` і `Aggregator.Cache`, підключено в `ServiceDefaults` через `AddMeter(...)`.
+
+### Health checks
+
+| Ендпоінт | Перевірки | Призначення |
+|---|---|---|
+| `/health/live` (і `/alive`) | лише `self` (тег `live`), без залежностей | процес живий; при збої — перезапуск |
+| `/health/ready` | перевірки з тегом `ready`, JSON з деталями | чи можна слати трафік |
+| `/health` | усі перевірки, JSON | використовує `WithHttpHealthCheck` в AppHost |
+
+Ендпоінти доступні в усіх середовищах (Swagger/OpenAPI лишились лише в Development). Відповідь `/health/ready` — JSON з `status`, `totalDurationMs` і для кожної перевірки `name`, `status`, `durationMs`, `description`, `error` (лише повідомлення, без stack trace), `tags`. Healthy і Degraded віддають 200, Unhealthy — 503.
+
+| Сервіс | Перевірка | Збій → статус |
+|---|---|---|
+| swaps-api | `swaps-db` (SQL Server, `SELECT 1`, 5 с) | Unhealthy |
+| swaps-api | `redis-cache` (3 с) | **Degraded**: сервіс працює з БД |
+| sessions-api | `sessions-db` (SQL Server, 5 с) | Unhealthy |
+| messages-api | `messages-db` (MongoDB ping тим самим `IMongoClient`, що в `MongoDbContext`, 5 с) | Unhealthy |
+| aggregator | `redis-cache` | Degraded |
+| aggregator | `swaps-api` (gRPC Health, дедлайн 2 с) | **Unhealthy**: без обміну картки немає |
+| aggregator | `sessions-api`, `messages-api` (gRPC Health) | **Degraded**: можлива часткова відповідь |
+
+- Власні перевірки Redis з Aspire-інтеграції вимкнено (`DisableHealthChecks = true`), інакше вони перекрили б Degraded статусом Unhealthy.
+- Кожен сервіс публікує стандартний `grpc.health.v1.Health` (`AddGrpcHealthChecks` + `MapGrpcHealthChecksService`). Статус `Serving` залежить лише від перевірок з тегом `database`. Перевірка Redis туди не входить: при зупиненому Redis вона триває довше за дедлайн проби (2 с), і swaps-api помилково виглядав би для Aggregator як Unhealthy.
+- SQL-перевірки використовують рядок підключення з `Connect Timeout = 5`. SqlClient не перериває очікування входу за скасуванням, тому без цього `/health/ready` при зупиненому SQL Server відповідав би 15 с.
+- Aggregator опитує його через `DownstreamGrpcHealthCheck` з окремими іменованими клієнтами `*-health`. На них resilience-обробник знято: проба має показувати поточний стан, а не повторювати запит.
+- В AppHost усі п'ять проєктів мають `WithHttpHealthCheck("/health")`. Тепер `WaitFor` чекає Healthy, а не просто запуску процесу. Degraded відповідає 200, тому зупинений Redis старт не блокує.
+
+### Як відтворити
+
+```bash
+U2=7c4d1e22-8a3f-4b6c-b0e9-5f1a2d3c4e02
+curl -k https://localhost:7180/health/ready     # swaps-api
+curl -k https://localhost:7116/health/ready     # aggregator: redis + три downstream-сервіси
+```
+
+1. **Повтори.** Зупиніть `messages-api` і кілька разів запросіть `/api/aggregator/swaps/2/full` (перші 30 с може відповідати кеш Aggregator).
+   - Перші запити дають 200 з `warnings` за 4–5 с: дві спроби по 2 с плюс затримка, у межах дедлайну 5 с.
+   - У логах aggregator Warning категорії `Polly` (`Execution attempt`).
+   - Dashboard → Metrics → aggregator → `resilience.polly.strategy.events`, фільтр `event.name = OnRetry`.
+2. **Circuit breaker.** Уже на третьому запиті набирається 5 збоїв.
+   - У логах з'являється Error `Circuit breaker for messages-api opened for 00:00:10`, у метриці — `OnCircuitOpened`.
+   - Наступні запити отримують часткову відповідь за ~30 мс.
+   - Через 10 с один запит пробує знову (`half-open`). Якщо сервіс ще лежить, ланцюг знову розмикається.
+   - Запустіть `messages-api` (Start): після `BreakDuration` з'являться `half-open` і `closed`, а `warnings` зникнуть.
+3. **Redis.** Зупиніть `redis`.
+   - `/health/ready` swaps-api і aggregator повертає 200 і `"status": "Degraded"`.
+   - Запити працюють, у логах `Redis unavailable, falling back to database`.
+4. **SQL Server.** Зупиніть `sql`: `/health/live` swaps-api і sessions-api повертає 200, а `/health/ready` — 503 `Unhealthy`.
+5. **Бізнес-метрики.** Створіть обмін (`POST /api/swaps`) і змініть статус (`POST /api/swaps/{id}/accept` тощо).
+   - Dashboard → Metrics → swaps-api: `swaps.created`, `swaps.status_changed` (фільтр `swap.status`).
+   - Там же `swaps.operation.duration` (розподіл за `operation`) і `swaps.cache.entries`.
