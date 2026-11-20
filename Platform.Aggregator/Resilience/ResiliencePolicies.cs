@@ -77,7 +77,7 @@ public static class ResiliencePolicies
             options.Retry.Delay = RetryDelay;
             options.Retry.BackoffType = DelayBackoffType.Exponential;
             options.Retry.UseJitter = true;
-            options.Retry.DisableForUnsafeHttpMethods();
+            AllowRetryOnlyForGrpcReads(options.Retry);
 
             options.AttemptTimeout.Timeout = policy.AttemptTimeout;
             options.TotalRequestTimeout.Timeout = policy.TotalTimeout;
@@ -109,6 +109,23 @@ public static class ResiliencePolicies
 
         return builder;
     }
+
+    /// <summary>
+    /// Unsafe HTTP methods are never retried. gRPC sends every call as POST, so without an exception the HTTP
+    /// retry would never fire for these clients; all our gRPC methods are reads, so gRPC requests keep the
+    /// default transient-failure rules.
+    /// </summary>
+    private static void AllowRetryOnlyForGrpcReads(HttpRetryStrategyOptions retry)
+    {
+        var transient = retry.ShouldHandle;
+        retry.DisableForUnsafeHttpMethods();
+        var safeMethodsOnly = retry.ShouldHandle;
+
+        retry.ShouldHandle = args => IsGrpc(args.Context.GetRequestMessage()) ? transient(args) : safeMethodsOnly(args);
+    }
+
+    private static bool IsGrpc(HttpRequestMessage? request)
+        => request?.Content?.Headers.ContentType?.MediaType?.StartsWith("application/grpc", StringComparison.OrdinalIgnoreCase) == true;
 
     /// <summary>
     /// gRPC statuses travel in trailers of an HTTP 200, so the HTTP handler cannot see them;
