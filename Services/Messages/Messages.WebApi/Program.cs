@@ -30,8 +30,8 @@ builder.Services.AddControllers()
     .AddJsonOptions(o => o.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull);
 
 builder.Services.AddGrpc(o => o.Interceptors.Add<GrpcLoggingInterceptor>());
-// grpc.health.v1 over the same health checks, so the aggregator can probe this service.
-builder.Services.AddGrpcHealthChecks();
+// grpc.health.v1 for the aggregator: serving as long as the database answers.
+builder.Services.AddGrpcHealthChecks(o => o.Services.Map("", check => check.Tags.Contains("database")));
 
 builder.Services.AddProblemDetails(o => o.CustomizeProblemDetails = ctx =>
     ctx.ProblemDetails.Extensions["traceId"] = ctx.HttpContext.TraceIdentifier);
