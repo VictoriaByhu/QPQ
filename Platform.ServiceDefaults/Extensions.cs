@@ -28,7 +28,16 @@ public static class Extensions
         "MongoDB.Driver.Core.Extensions.DiagnosticSources"
     ];
 
-    private static readonly string[] CacheMeters = ["Swaps.Cache", "Aggregator.Cache"];
+    // Business meters of the services, their caches, and Polly's resilience events (retries, circuit breaker).
+    private static readonly string[] Meters =
+    [
+        "Swaps.Api",
+        "Sessions.Api",
+        "Messages.WebApi",
+        "Swaps.Cache",
+        "Aggregator.Cache",
+        "Polly"
+    ];
 
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
@@ -87,7 +96,7 @@ public static class Extensions
                 metrics.AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
                     .AddRuntimeInstrumentation()
-                    .AddMeter(CacheMeters);
+                    .AddMeter(Meters);
             })
             .WithTracing(tracing =>
             {
