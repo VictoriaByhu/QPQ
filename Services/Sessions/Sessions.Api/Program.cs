@@ -4,7 +4,9 @@ using Microsoft.OpenApi.Models;
 using Platform.ServiceDefaults;
 using Platform.ServiceDefaults.Grpc;
 using Sessions.Api.Grpc;
+using Platform.EventBus;
 using Sessions.Api.HealthChecks;
+using Sessions.Api.IntegrationEvents;
 using Sessions.Api.Metrics;
 using Sessions.Api.Middleware;
 using Sessions.Api.Services;
@@ -28,6 +30,16 @@ builder.Services.AddDbContext<SessionsDbContext>(options =>
 });
 
 builder.Services.AddSessionsHealthChecks(connectionString);
+
+// Our own broker check (tagged ready, Degraded) and tracing spans replace the integration's ones.
+builder.AddRabbitMQClient("messaging", settings =>
+{
+    settings.DisableHealthChecks = true;
+    settings.DisableTracing = true;
+});
+builder.Services.AddEventBus();
+builder.Services.AddSwapEventsConsumer();
+builder.Services.AddHostedService<SwapEventsConsumer>();
 
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddSingleton<SessionMetrics>();
