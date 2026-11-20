@@ -16,25 +16,32 @@ var messagesDb = mongo.AddDatabase("MessagesDb", "QPQ_Messages");
 
 var redis = builder.AddRedis("redis").WithDataVolume();
 
+// WithHttpHealthCheck makes the dashboard show real health and makes WaitFor wait for Healthy, not just a started process.
+// /health answers 200 for Healthy and Degraded, so a stopped Redis does not hold back the services that depend on it.
 var swaps = builder.AddProject<Projects.Swaps_Api>("swaps-api")
     .WithReference(swapsDb).WaitFor(swapsDb)
-    .WithReference(redis).WaitFor(redis);
+    .WithReference(redis).WaitFor(redis)
+    .WithHttpHealthCheck("/health");
 
 var sessions = builder.AddProject<Projects.Sessions_Api>("sessions-api")
-    .WithReference(sessionsDb).WaitFor(sessionsDb);
+    .WithReference(sessionsDb).WaitFor(sessionsDb)
+    .WithHttpHealthCheck("/health");
 
 var messages = builder.AddProject<Projects.Messages_WebApi>("messages-api")
-    .WithReference(messagesDb).WaitFor(messagesDb);
+    .WithReference(messagesDb).WaitFor(messagesDb)
+    .WithHttpHealthCheck("/health");
 
 var aggregator = builder.AddProject<Projects.Platform_Aggregator>("aggregator")
     .WithReference(swaps).WithReference(sessions).WithReference(messages)
     .WithReference(redis).WaitFor(redis)
-    .WaitFor(swaps).WaitFor(sessions).WaitFor(messages);
+    .WaitFor(swaps).WaitFor(sessions).WaitFor(messages)
+    .WithHttpHealthCheck("/health");
 
 builder.AddProject<Projects.Platform_ApiGateway>("gateway")
     .WithHttpEndpoint(port: 5000, name: "public")
     .WithReference(swaps).WithReference(sessions).WithReference(messages)
     .WithReference(aggregator)
-    .WaitFor(aggregator);
+    .WaitFor(aggregator)
+    .WithHttpHealthCheck("/health");
 
 builder.Build().Run();
