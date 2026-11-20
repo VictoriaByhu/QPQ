@@ -39,10 +39,18 @@ public class UpdateReviewCommandHandler : IRequestHandler<UpdateReviewCommand>
 
             await _repository.UpdateAsync(review);
 
-            // ЛАБ 06: Інвалідація кешу синхронно з операцією запису
             var cacheKey = $"reviews:review:{request.Id}";
             _memoryCache.Remove(cacheKey);
-            await _distributedCache.RemoveAsync(cacheKey, cancellationToken);
+
+            // ЛАБ 07: Graceful degradation для Redis при інвалідації
+            try
+            {
+                await _distributedCache.RemoveAsync(cacheKey, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Redis unavailable on REMOVE for {Key}", cacheKey);
+            }
 
             _logger.LogInformation("Cache invalidated {Key}, reason {Reason}", cacheKey, "ReviewUpdated");
         }

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using QPQ.Reviews.Application.Interfaces;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -31,10 +32,18 @@ public class DeleteReviewCommandHandler : IRequestHandler<DeleteReviewCommand>
     {
         await _repository.DeleteAsync(request.Id);
 
-        // ЛАБ 06: Інвалідація кешу синхронно з операцією видалення
         var cacheKey = $"reviews:review:{request.Id}";
         _memoryCache.Remove(cacheKey);
-        await _distributedCache.RemoveAsync(cacheKey, cancellationToken);
+
+        // ЛАБ 07: Graceful degradation для Redis при інвалідації
+        try
+        {
+            await _distributedCache.RemoveAsync(cacheKey, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Redis unavailable on REMOVE for {Key}", cacheKey);
+        }
 
         _logger.LogInformation("Cache invalidated {Key}, reason {Reason}", cacheKey, "ReviewDeleted");
     }
