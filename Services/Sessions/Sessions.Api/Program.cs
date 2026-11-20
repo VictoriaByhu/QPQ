@@ -4,6 +4,7 @@ using Microsoft.OpenApi.Models;
 using Platform.ServiceDefaults;
 using Platform.ServiceDefaults.Grpc;
 using Sessions.Api.Grpc;
+using Sessions.Api.Metrics;
 using Sessions.Api.Middleware;
 using Sessions.Api.Services;
 using Sessions.Bll.Mapping;
@@ -26,7 +27,9 @@ builder.Services.AddDbContext<SessionsDbContext>(options =>
 });
 
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
-builder.Services.AddScoped<ISessionService, SessionService>();
+builder.Services.AddSingleton<SessionMetrics>();
+builder.Services.AddScoped<SessionService>();
+builder.Services.AddScoped<ISessionService, MeteredSessionService>();
 builder.Services.AddScoped<IAcceptedSwapService, AcceptedSwapService>();
 builder.Services.AddScoped<ISkillService, SkillService>();
 
