@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Messages.Grpc;
 using Platform.Aggregator.Caching;
 using Platform.Aggregator.Clients;
+using Platform.Aggregator.HealthChecks;
 using Platform.Aggregator.Resilience;
 using Platform.Aggregator.Services;
 using Platform.ServiceDefaults;
@@ -11,7 +12,12 @@ using Swaps.Grpc;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
-builder.AddRedisDistributedCache("redis");
+// The integration's own Redis check reports Unhealthy; ours reports Degraded, since Redis is only a cache.
+builder.AddRedisDistributedCache("redis", settings => settings.DisableHealthChecks = true);
+
+var redisConnectionString = builder.Configuration.GetConnectionString("redis")
+    ?? throw new InvalidOperationException("Connection string 'redis' is missing");
+builder.Services.AddAggregatorHealthChecks(redisConnectionString);
 
 builder.Services.AddSingleton<AggregatorCacheMetrics>();
 builder.Services.AddSingleton<FullSwapCache>();
