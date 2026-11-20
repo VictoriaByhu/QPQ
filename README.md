@@ -27,3 +27,13 @@
 Відкрийте термінал у кореневій папці проєкту та виконайте:
 ```bash
 dotnet run --project Platform.AppHost/Platform.AppHost.csproj
+
+## Resilience-політики (Лабораторна робота №7)
+
+Для клієнтів `Platform.Aggregator` налаштовано окремі політики стійкості залежно від критичності сервісу (після виклику `RemoveAllResilienceHandlers()` для уникнення нашарування):
+
+| Клієнт / Сервіс | Критичність | Retry | Таймаути (Attempt / Total) | Circuit Breaker | Обґрунтування |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`reviews-api` (gRPC)** | Некритичний | HTTP: 1 спроба (0.5 с, exp + jitter)<br>gRPC: до 3 спроб (`Unavailable`, `ResourceExhausted`) | 2 с / 5 с | `FailureRatio: 0.7`<br>`MinimumThroughput: 5`<br>`Sampling: 10 с`<br>`Break: 15 с` | Агрегатор може повернути часткову відповідь без відгуків. Короткі таймаути та мінімум повторів запобігають затримці основного запиту. |
+| **`swap-service` (HTTP)** | Критичний | 4 спроби (1 с, exp + jitter, лише ідемпотентні методи) | 4 с / 25 с | `FailureRatio: 0.3`<br>`MinimumThroughput: 5`<br>`Sampling: 30 с`<br>`Break: 15 с` | Критична залежність платформи: більше повторних спроб для поглинання тимчасових збоїв і чутливіший запобіжник для швидкого захисту від каскадних відмов. |
+| **Redis (кеш)** | Необов'язкова залежність | Вбудоване перепідключення `ConnectionMultiplexer` | Health check: 3 с | Graceful degradation (`try/catch`) | Кеш не входить до критичного шляху: при недоступності Redis сервіс читає дані з MongoDB, а health check переходить у статус `Degraded`. |

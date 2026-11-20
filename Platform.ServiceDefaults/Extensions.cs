@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
@@ -28,14 +29,13 @@ public static class Extensions
                 .Enrich.WithMachineName()
                 .Enrich.WithEnvironmentName()
                 .Enrich.WithThreadId()
-                // Логування в консоль у форматі Compact JSON
                 .WriteTo.Console(new CompactJsonFormatter());
-        }, writeToProviders: true); // Передає логи в OpenTelemetry Aspire
+        }, writeToProviders: true);
 
-        // 2. Додаємо HttpContextAccessor для роботи з заголовками (CorrelationId)
+        // 2. HttpContextAccessor для CorrelationId
         builder.Services.AddHttpContextAccessor();
 
-        // 3. Реєструємо наш DelegatingHandler для вихідних HTTP-запитів
+        // 3. DelegatingHandler для вихідних HTTP-запитів
         builder.Services.AddTransient<CorrelationIdDelegatingHandler>();
 
         builder.ConfigureOpenTelemetry();
@@ -46,13 +46,13 @@ public static class Extensions
 
         builder.Services.ConfigureHttpClientDefaults(http =>
         {
-            // Turn on resilience by default
+            // Standard Resilience Handler за замовчуванням для всіх клієнтів
             http.AddStandardResilienceHandler();
 
-            // Turn on service discovery by default
+            // Service Discovery за замовчуванням
             http.AddServiceDiscovery();
 
-            // Додаємо наскрізну передачу CorrelationId у всі вихідні виклики
+            // Наскрізна передача CorrelationId
             http.AddHttpMessageHandler<CorrelationIdDelegatingHandler>();
         });
 
@@ -72,17 +72,18 @@ public static class Extensions
             {
                 metrics.AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
-                    .AddRuntimeInstrumentation();
+                    .AddRuntimeInstrumentation()
+                    // ЛАБ 06–07: Метрики Polly, кешу та бізнес-метрики
+                    .AddMeter("Polly")
+                    .AddMeter("Reviews.Cache")
+                    .AddMeter("Reviews.Api");
             })
             .WithTracing(tracing =>
             {
                 tracing.AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
-                    // Трасування SQL Server
                     .AddSqlClientInstrumentation()
-                    // Трасування MongoDB
                     .AddSource("MongoDB.Driver.Core.Extensions.DiagnosticSources")
-                    // Трасування власних бізнес-операцій
                     .AddSource("BusinessActivitySource");
             });
 
@@ -113,9 +114,27 @@ public static class Extensions
 
     public static WebApplication MapDefaultEndpoints(this WebApplication app)
     {
+        // ЛАБ 07: Liveness та Readiness доступні в усіх середовищах (не лише в Development)
+        app.MapHealthChecks("/health/live", new HealthCheckOptions
+        {
+            Predicate = r => r.Tags.Contains("live"),
+            ResponseWriter = WriteHealthCheckJsonResponse
+        });
+
+        app.MapHealthChecks("/health/ready", new HealthCheckOptions
+        {
+            Predicate = r => r.Tags.Contains("ready"),
+            ResponseWriter = WriteHealthCheckJsonResponse
+        });
+
+        // Загальний ендпоінт для Aspire Dashboard (WithHttpHealthCheck("/health"))
+        app.MapHealthChecks("/health", new HealthCheckOptions
+        {
+            ResponseWriter = WriteHealthCheckJsonResponse
+        });
+
         if (app.Environment.IsDevelopment())
         {
-            app.MapHealthChecks("/health");
             app.MapHealthChecks("/alive", new HealthCheckOptions
             {
                 Predicate = r => r.Tags.Contains("live")
@@ -124,9 +143,33 @@ public static class Extensions
 
         return app;
     }
+
+    private static Task WriteHealthCheckJsonResponse(HttpContext context, HealthReport report)
+    {
+        context.Response.ContentType = "application/json; charset=utf-8";
+
+        var response = new
+        {
+            status = report.Status.ToString(),
+            totalDurationMs = report.TotalDuration.TotalMilliseconds,
+            checks = report.Entries.Select(e => new
+            {
+                name = e.Key,
+                status = e.Value.Status.ToString(),
+                description = e.Value.Description,
+                durationMs = e.Value.Duration.TotalMilliseconds,
+                tags = e.Value.Tags,
+                error = e.Value.Exception?.Message
+            })
+        };
+
+        return context.Response.WriteAsync(JsonSerializer.Serialize(response, new JsonSerializerOptions
+        {
+            WriteIndented = true
+        }));
+    }
 }
 
-// 4. Реалізація DelegatingHandler для наскрізного CorrelationId
 public class CorrelationIdDelegatingHandler : DelegatingHandler
 {
     private readonly IHttpContextAccessor _httpContextAccessor;
