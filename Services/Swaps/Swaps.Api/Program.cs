@@ -3,6 +3,7 @@ using Microsoft.OpenApi.Models;
 using Platform.ServiceDefaults;
 using Platform.ServiceDefaults.Grpc;
 using Swaps.Api.Grpc;
+using Swaps.Api.HealthChecks;
 using Swaps.Api.Metrics;
 using Swaps.Api.Middleware;
 using Swaps.Api.Services;
@@ -14,10 +15,15 @@ using Swaps.Dal.Interfaces;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
-builder.AddRedisDistributedCache("redis");
+// The integration's own Redis check reports Unhealthy; ours below reports Degraded, since Redis is only a cache.
+builder.AddRedisDistributedCache("redis", settings => settings.DisableHealthChecks = true);
 
 var connectionString = builder.Configuration.GetConnectionString("SwapsDb")
     ?? throw new InvalidOperationException("Connection string 'SwapsDb' is missing");
+var redisConnectionString = builder.Configuration.GetConnectionString("redis")
+    ?? throw new InvalidOperationException("Connection string 'redis' is missing");
+
+builder.Services.AddSwapsHealthChecks(connectionString, redisConnectionString);
 
 builder.Services.AddMemoryCache(o =>
 {

@@ -2,7 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Messages.Application.Common.Interfaces;
 using Messages.Domain.Interfaces;
-using Messages.Infrastructure.HealthChecks;
+using MongoDB.Driver;
 using Messages.Infrastructure.Persistence;
 using Messages.Infrastructure.Persistence.Queries;
 using Messages.Infrastructure.Persistence.Repositories;
@@ -29,6 +29,8 @@ public static class DependencyInjection
             .ValidateOnStart();
 
         services.AddSingleton<MongoDbContext>();
+        // The same client the context created, so nothing opens a second connection pool.
+        services.AddSingleton<IMongoClient>(sp => sp.GetRequiredService<MongoDbContext>().Database.Client);
 
         services.AddScoped<IConversationRepository, ConversationRepository>();
         services.AddScoped<IMessageRepository, MessageRepository>();
@@ -41,8 +43,6 @@ public static class DependencyInjection
 
         services.AddHostedService<IndexCreationService>();
         services.AddHostedService<DataSeedingService>();
-
-        services.AddHealthChecks().AddCheck<MongoHealthCheck>("mongodb", tags: ["db", "mongodb"]);
 
         return services;
     }

@@ -4,6 +4,7 @@ using Microsoft.OpenApi.Models;
 using Platform.ServiceDefaults;
 using Platform.ServiceDefaults.Grpc;
 using Sessions.Api.Grpc;
+using Sessions.Api.HealthChecks;
 using Sessions.Api.Metrics;
 using Sessions.Api.Middleware;
 using Sessions.Api.Services;
@@ -25,6 +26,8 @@ builder.Services.AddDbContext<SessionsDbContext>(options =>
     if (builder.Environment.IsDevelopment())
         options.EnableSensitiveDataLogging();
 });
+
+builder.Services.AddSessionsHealthChecks(connectionString);
 
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddSingleton<SessionMetrics>();
