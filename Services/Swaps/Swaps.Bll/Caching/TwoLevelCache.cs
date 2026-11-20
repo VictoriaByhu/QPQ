@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using StackExchange.Redis;
 
 namespace Swaps.Bll.Caching;
 
@@ -105,6 +106,12 @@ public sealed class TwoLevelCache(
         {
             return await distributed.GetAsync(key, ct);
         }
+        catch (Exception ex) when (IsRedisOutage(ex))
+        {
+            StartCooldown();
+            logger.LogWarning(ex, "Redis unavailable, falling back to database for {Key}", key);
+            return null;
+        }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             OnRedisFailure(ex, "read", key);
@@ -122,6 +129,11 @@ public sealed class TwoLevelCache(
             await distributed.SetAsync(key, bytes,
                 new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = ttl.L2 }, ct);
         }
+        catch (Exception ex) when (IsRedisOutage(ex))
+        {
+            StartCooldown();
+            logger.LogWarning(ex, "Redis unavailable, value for {Key} not cached", key);
+        }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             OnRedisFailure(ex, "write", key);
@@ -135,6 +147,11 @@ public sealed class TwoLevelCache(
         {
             await distributed.RemoveAsync(key, ct);
         }
+        catch (Exception ex) when (IsRedisOutage(ex))
+        {
+            StartCooldown();
+            logger.LogWarning(ex, "Redis unavailable, {Key} not removed from L2", key);
+        }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             OnRedisFailure(ex, "remove", key);
@@ -143,9 +160,14 @@ public sealed class TwoLevelCache(
 
     private bool IsRedisCoolingDown() => DateTime.UtcNow.Ticks < Interlocked.Read(ref _redisRetryAtTicks);
 
+    // A down or slow server; anything else is handled by the general fallback below it.
+    private static bool IsRedisOutage(Exception ex) => ex is RedisConnectionException or RedisTimeoutException;
+
+    private void StartCooldown() => Interlocked.Exchange(ref _redisRetryAtTicks, DateTime.UtcNow.Add(RedisCooldown).Ticks);
+
     private void OnRedisFailure(Exception ex, string operation, string key)
     {
-        Interlocked.Exchange(ref _redisRetryAtTicks, DateTime.UtcNow.Add(RedisCooldown).Ticks);
+        StartCooldown();
         logger.LogWarning(ex, "Redis {Operation} failed for {Key}, continuing without L2", operation, key);
     }
 }

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Distributed;
 using Platform.Aggregator.Dtos;
+using StackExchange.Redis;
 
 namespace Platform.Aggregator.Caching;
 
@@ -37,6 +38,11 @@ public sealed class FullSwapCache(
             {
                 logger.LogWarning(ex, "Cache entry {Key} has an unexpected format", key);
             }
+            catch (Exception ex) when (IsRedisOutage(ex))
+            {
+                StartCooldown();
+                logger.LogWarning(ex, "Redis unavailable, falling back to downstream services for {Key}", key);
+            }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 OnRedisFailure(ex, "read", key);
@@ -63,6 +69,11 @@ public sealed class FullSwapCache(
                 ct);
             logger.LogInformation("Cache set {Key} ttl {Ttl}", key, Ttl);
         }
+        catch (Exception ex) when (IsRedisOutage(ex))
+        {
+            StartCooldown();
+            logger.LogWarning(ex, "Redis unavailable, value for {Key} not cached", key);
+        }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             OnRedisFailure(ex, "write", key);
@@ -73,9 +84,14 @@ public sealed class FullSwapCache(
 
     private bool IsRedisCoolingDown() => DateTime.UtcNow.Ticks < Interlocked.Read(ref _redisRetryAtTicks);
 
+    // A down or slow server; anything else is handled by the general fallback.
+    private static bool IsRedisOutage(Exception ex) => ex is RedisConnectionException or RedisTimeoutException;
+
+    private void StartCooldown() => Interlocked.Exchange(ref _redisRetryAtTicks, DateTime.UtcNow.Add(RedisCooldown).Ticks);
+
     private void OnRedisFailure(Exception ex, string operation, string key)
     {
-        Interlocked.Exchange(ref _redisRetryAtTicks, DateTime.UtcNow.Add(RedisCooldown).Ticks);
+        StartCooldown();
         logger.LogWarning(ex, "Redis {Operation} failed for {Key}, continuing without cache", operation, key);
     }
 }
