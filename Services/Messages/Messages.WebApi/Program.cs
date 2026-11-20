@@ -1,4 +1,6 @@
 using System.Text.Json.Serialization;
+using MediatR;
+using Messages.WebApi.Metrics;
 using Microsoft.OpenApi.Models;
 using Platform.ServiceDefaults;
 using Platform.ServiceDefaults.Grpc;
@@ -14,6 +16,9 @@ builder.AddServiceDefaults();
 builder.Services
     .AddApplication(builder.Configuration)
     .AddInfrastructure(builder.Configuration);
+
+builder.Services.AddSingleton<MessageMetrics>();
+builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(MessageMetricsBehavior<,>));
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
